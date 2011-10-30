@@ -1,19 +1,25 @@
-#include <stddef.h>	/* offsetof */
+#include <stddef.h>	/* size_t offsetof */
 #include <stdarg.h>	/* va_list va_start va_end va_arg */
 #include <stdlib.h>	/* malloc(3) realloc(3) strtod(3) */
-#include <stdio.h>	/* fprintf(3) */
+#include <stdio.h>	/* snprintf(3) */
 
 #include <string.h>	/* memset(3) */
 
-#include <ctype.h>	/* isdigit(3) */
+#include <ctype.h>	/* isdigit(3) isgraph(3) */
 
-#include <math.h>	/* HUGE_VAL */
+#include <math.h>	/* HUGE_VAL modf(3) */
 
-#include <errno.h>	/* errno ERANGE EOVERFLOW */
+#include <errno.h>	/* errno ERANGE EOVERFLOW EINVAL */
 
-#include <sys/param.h>
 #include <sys/queue.h>
 
+#include "llrb.h"
+
+
+/*
+ * M I S C E L L A N E O U S  R O U T I N E S
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 #define PASTE(x, y) x ## y
 #define XPASTE(x, y) PASTE(x, y)
@@ -28,6 +34,11 @@ static void *make(size_t size, int *error) {
 	return p;
 } /* make() */
 
+
+/*
+ * L E X E R  R O U T I N E S
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 struct string {
 	size_t length;
@@ -104,8 +115,27 @@ struct lexer {
 static void lex_init(struct lexer *L) {
 	memset(L, 0, sizeof *L);
 
+	L->cursor.row = 1;
+
 	CIRCLEQ_INIT(&L->tokens);
 } /* lex_init() */
+
+
+static void lex_destroy(struct lexer *L) {
+	struct token *T;
+
+	while (!CIRCLEQ_EMPTY(&L->tokens)) {
+		T = CIRCLEQ_FIRST(&L->tokens);
+		CIRCLEQ_REMOVE(&L->tokens, T, cqe);
+
+		if (T->type == T_STRING)
+			free(T->string);
+
+		free(T);
+	} /* while (tokens) */
+
+	free(L->string);
+} /* lex_destroy() */
 
 
 static int lex_push(struct lexer *L, enum tokens type, ...) {
@@ -442,7 +472,10 @@ false:
 
 	goto start;
 invalid:
-	fprintf(stderr, "invalid char (0x%.2x) at line %u, column %u\n", ch, L->cursor.row, L->cursor.col);
+	if (isgraph(ch))
+		fprintf(stderr, "invalid char (%c) at line %u, column %u\n", ch, L->cursor.row, L->cursor.col);
+	else
+		fprintf(stderr, "invalid char (0x%.2x) at line %u, column %u\n", ch, L->cursor.row, L->cursor.col);
 
 	error = EINVAL;
 
@@ -453,6 +486,176 @@ error:
 failed:
 	return L->error;
 } /* lex_parse() */
+
+
+/*
+ * V A L U E  R O U T I N E S
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+typedef int index_t;
+
+struct node {
+	union {
+		struct value *key;
+		index_t index;
+	};
+
+	struct value *value;
+	struct value *parent;
+}; /* struct node */
+
+
+struct value {
+	enum values {
+		V_ARRAY   = T_BEGIN_ARRAY,
+		V_OBJECT  = T_BEGIN_OBJECT,
+		V_STRING  = T_STRING,
+		V_NUMBER  = T_NUMBER,
+		V_BOOLEAN = T_BOOLEAN,
+		V_NULL    = T_NULL,
+	} type;
+
+	union {
+		struct {
+			LLRB_HEAD(array, node) nodes;
+			index_t count;
+		} array;
+
+		struct {
+			LLRB_HEAD(object, node) nodes;
+			index_t count;
+		} object;
+
+		struct string *string;
+
+		double number;
+
+		_Bool boolean;
+	};
+}; /* struct value */
+
+
+struct printer {
+	int state;
+	struct value *value;
+
+	char literal[64];
+
+	struct {
+		char *p, *pe;
+	} ibuf;
+
+	struct {
+		char *p, *pe;
+	} obuf;
+}; /* struct printer */
+
+#define RESUME() switch (P->state) { case 0: (void)0
+
+#define YIELD() P->state = __LINE__; return EAGAIN; case __LINE__: (void)0
+
+#define PUTCHAR(ch) do { \
+	while (P->obuf.p >= P->obuf.pe) \
+		YIELD(); \
+	*P->obuf.p++ = (ch); \
+} while (0)
+
+#define END } (void)0
+
+static int print_simple(struct printer *P, struct value *V) {
+	RESUME();
+
+	switch (V->type) {
+	case T_STRING:
+		P->ibuf.p = V->string->text;
+		P->ibuf.pe = &V->string->text[V->string->length];
+
+		goto string;
+	case T_NUMBER: {
+		double i;
+		int count;
+
+		if (0.0 == modf(V->number, &i))
+			count = snprintf(P->literal, sizeof P->literal, "%lld", (long long)i);
+		else
+			count = snprintf(P->literal, sizeof P->literal, "%f", V->number);
+
+		if (count == -1)
+			return errno;
+		else if ((size_t)count >= sizeof P->literal)
+			return EOVERFLOW;
+
+		P->ibuf.p = P->literal;
+		P->ibuf.pe = &P->literal[count];
+
+		goto literal;
+	}
+	case T_BOOLEAN: {
+		size_t count = strlcpy(P->literal, ((V->boolean)? "true" : "false"), sizeof P->literal);
+
+		P->ibuf.p = P->literal;
+		P->ibuf.pe = &P->literal[count];
+
+		goto literal;
+	}
+	case T_NULL: {
+		size_t count = strlcpy(P->literal, "null", sizeof P->literal);
+
+		P->ibuf.p = P->literal;
+		P->ibuf.pe = &P->literal[count];
+
+		goto literal;
+	}
+	default:
+		return 0;
+	} /* switch (V->type) */
+string:
+	PUTCHAR('"');
+
+	while (P->ibuf.p < P->ibuf.pe) {
+		if (isgraph(*P->ibuf.p)) {
+			if (*P->ibuf.p == '"' || *P->ibuf.p == '/' || *P->ibuf.p == '\\')
+				PUTCHAR('\\');
+			PUTCHAR(*P->ibuf.p++);
+		} else if (*P->ibuf.p == ' ') {
+			PUTCHAR(*P->ibuf.p++);
+		} else {
+			PUTCHAR('\\');
+
+			if (*P->ibuf.p == '\b')
+				PUTCHAR('b');
+			else if (*P->ibuf.p == '\f')
+				PUTCHAR('f');
+			else if (*P->ibuf.p == '\n')
+				PUTCHAR('n');
+			else if (*P->ibuf.p == '\r')
+				PUTCHAR('r');
+			else if (*P->ibuf.p == '\t')
+				PUTCHAR('t');
+			else {
+				PUTCHAR('u');
+				PUTCHAR('0');
+				PUTCHAR('0');
+				PUTCHAR("0123456789abcdef"[0x0f & (*P->ibuf.p >> 4)]);
+				PUTCHAR("0123456789abcdef"[0x0f & (*P->ibuf.p >> 0)]);
+			}
+
+			P->ibuf.p++;
+		}
+	} /* while() */
+
+	PUTCHAR('"');
+
+	return 0;
+literal:
+	while (P->ibuf.p < P->ibuf.pe)
+		PUTCHAR(*P->ibuf.p++);
+
+	return 0;
+
+	END;
+} /* print_simple() */
 
 
 #include <stdio.h>
@@ -484,6 +687,8 @@ int main(void) {
 			fprintf(stdout, "%s\n", lex_strtype(T->type));
 		}
 	}
+
+	lex_destroy(&L);
 
 	return 0;
 } /* main() */
