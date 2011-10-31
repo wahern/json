@@ -537,7 +537,7 @@ struct value {
 
 
 struct printer {
-	int state;
+	int state, error;
 	struct value *value;
 
 	char literal[64];
@@ -545,25 +545,25 @@ struct printer {
 	struct {
 		char *p, *pe;
 	} ibuf;
-
-	struct {
-		char *p, *pe;
-	} obuf;
 }; /* struct printer */
 
 #define RESUME() switch (P->state) { case 0: (void)0
 
-#define YIELD() P->state = __LINE__; return EAGAIN; case __LINE__: (void)0
+#define YIELD() P->state = __LINE__; return p - dst; case __LINE__: (void)0
+
+#define RETURN() P->state = __LINE__; case __LINE__: return p - dst
 
 #define PUTCHAR(ch) do { \
-	while (P->obuf.p >= P->obuf.pe) \
+	while (p >= pe) \
 		YIELD(); \
-	*P->obuf.p++ = (ch); \
+	*p++ = (ch); \
 } while (0)
 
 #define END } (void)0
 
-static int print_simple(struct printer *P, struct value *V) {
+static size_t simple_print(struct printer *P, char *dst, size_t lim, struct value *V) {
+	char *p = dst, *pe = &dst[lim];
+
 	RESUME();
 
 	switch (V->type) {
@@ -581,10 +581,15 @@ static int print_simple(struct printer *P, struct value *V) {
 		else
 			count = snprintf(P->literal, sizeof P->literal, "%f", V->number);
 
-		if (count == -1)
-			return errno;
-		else if ((size_t)count >= sizeof P->literal)
-			return EOVERFLOW;
+		if (count == -1) {
+			P->error = errno;
+
+			goto error;
+		} else if ((size_t)count >= sizeof P->literal) {
+			P->error = EOVERFLOW;
+
+			goto error;
+		}
 
 		P->ibuf.p = P->literal;
 		P->ibuf.pe = &P->literal[count];
@@ -647,15 +652,33 @@ string:
 
 	PUTCHAR('"');
 
-	return 0;
+	RETURN();
 literal:
 	while (P->ibuf.p < P->ibuf.pe)
 		PUTCHAR(*P->ibuf.p++);
 
-	return 0;
+	RETURN();
+error:
+	RETURN();
 
 	END;
-} /* print_simple() */
+} /* simple_print() */
+
+
+static int simple_fprint(struct value *V, FILE *fp) {
+	struct printer P;
+	char tmp[8];
+	size_t count;
+
+	memset(&P, 0, sizeof P);
+
+	while ((count = simple_print(&P, tmp, sizeof tmp, V))) {
+		fwrite(tmp, 1, count, fp);
+	}
+
+	return P.error;
+} /* simple_fprint() */
+
 
 
 #include <stdio.h>
