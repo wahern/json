@@ -1,9 +1,9 @@
 #include <stddef.h>	/* size_t offsetof */
 #include <stdarg.h>	/* va_list va_start va_end va_arg */
-#include <stdlib.h>	/* malloc(3) realloc(3) strtod(3) */
+#include <stdlib.h>	/* malloc(3) realloc(3) free(3) strtod(3) */
 #include <stdio.h>	/* snprintf(3) */
 
-#include <string.h>	/* memset(3) */
+#include <string.h>	/* memset(3) strncmp(3) */
 
 #include <ctype.h>	/* isdigit(3) isgraph(3) */
 
@@ -24,6 +24,9 @@
 #define PASTE(x, y) x ## y
 #define XPASTE(x, y) PASTE(x, y)
 
+#define MIN(a, b) (((a) < (b))? (a) : (b))
+#define CMP(a, b) (((a) < (b))? -1 : ((a) > (b))? 1 : 0)
+
 
 static void *make(size_t size, int *error) {
 	void *p;
@@ -33,6 +36,24 @@ static void *make(size_t size, int *error) {
 
 	return p;
 } /* make() */
+
+
+static void *make0(size_t size, int *error) {
+	void *p;
+
+	if ((p = make(size, error)))
+		memset(p, 0, size);
+
+	return p;
+} /* make0() */
+
+
+enum json_errors {
+	JSON_EASSERT = 1,
+	JSON_ELEXICAL,
+	JSON_ESYNTAX,
+}; /* enum json_errors */
+
 
 
 /*
@@ -259,13 +280,13 @@ static int lex_pushnum(struct lexer *L) {
 
 	if (number == 0) {
 		if (end == L->number)
-			return EINVAL;
+			return JSON_ELEXICAL;
 		if (errno == ERANGE)
 			return ERANGE;
 	} else if (number == HUGE_VAL && errno == ERANGE) {
 		return ERANGE;
 	} else if (*end != '\0')
-		return EINVAL;
+		return JSON_ELEXICAL;
 
 	return lex_push(L, T_NUMBER, number);
 } /* lex_pushnum() */
@@ -294,8 +315,8 @@ static int lex_pushnum(struct lexer *L) {
 
 #define expect(c) do { popchar(); if (ch != (c)) goto invalid; } while (0)
 
-static int lex_parse(struct lexer *L, void *src, size_t len) {
-	unsigned char *p = src, *pe = p + len;
+static int lex_parse(struct lexer *L, const void *src, size_t len) {
+	const unsigned char *p = src, *pe = p + len;
 	int ch, error;
 
 	resume();
@@ -477,7 +498,7 @@ invalid:
 	else
 		fprintf(stderr, "invalid char (0x%.2x) at line %u, column %u\n", ch, L->cursor.row, L->cursor.col);
 
-	error = EINVAL;
+	error = JSON_ELEXICAL;
 
 	goto error;
 error:
@@ -497,24 +518,36 @@ typedef int index_t;
 
 struct node {
 	union {
-		struct value *key;
+		struct json_value *key;
 		index_t index;
 	};
 
-	struct value *value;
-	struct value *parent;
+	struct json_value *value;
+	struct json_value *parent;
+
+	union {
+		LLRB_ENTRY(node) rbe;
+		CIRCLEQ_ENTRY(node) cqe;
+	};
 }; /* struct node */
 
 
-struct value {
-	enum values {
-		V_ARRAY   = T_BEGIN_ARRAY,
-		V_OBJECT  = T_BEGIN_OBJECT,
-		V_STRING  = T_STRING,
-		V_NUMBER  = T_NUMBER,
-		V_BOOLEAN = T_BOOLEAN,
-		V_NULL    = T_NULL,
+struct json_value {
+	enum json_values {
+		JSON_V_ARRAY   = T_BEGIN_ARRAY,
+		JSON_V_OBJECT  = T_BEGIN_OBJECT,
+		JSON_V_STRING  = T_STRING,
+		JSON_V_NUMBER  = T_NUMBER,
+		JSON_V_BOOLEAN = T_BOOLEAN,
+		JSON_V_NULL    = T_NULL,
 	} type;
+
+	struct node *node;
+
+	union { /* mutually exclusive usage */ 
+		struct json_value *root;
+		void *state;
+	};
 
 	union {
 		struct {
@@ -533,12 +566,228 @@ struct value {
 
 		_Bool boolean;
 	};
-}; /* struct value */
+}; /* struct json_value */
+
+
+static int array_cmp(struct node *a, struct node *b) {
+	return CMP(a->index, b->index);
+} /* array_cmp() */
+
+LLRB_GENERATE(array, node, rbe, array_cmp)
+
+
+/* NOTE: All keys must be strings per RFC 4627. */
+static int object_cmp(struct node *a, struct node *b) {
+	int cmp;
+
+	if ((cmp = strncmp(a->key->string->text, b->key->string->text, MIN(a->key->string->length, b->key->string->length))))
+		return cmp;
+
+	return CMP(a->key->string->length, b->key->string->length);
+} /* object_cmp() */
+
+LLRB_GENERATE(object, node, rbe, object_cmp)
+
+
+static size_t value_sizeof(enum json_values type) {
+	switch (type) {
+	case JSON_V_ARRAY:
+		return offsetof(struct json_value, array) + sizeof ((struct json_value *)0)->array;
+	case JSON_V_OBJECT:
+		return offsetof(struct json_value, object) + sizeof ((struct json_value *)0)->object;
+	case JSON_V_STRING:
+		return offsetof(struct json_value, string) + sizeof ((struct json_value *)0)->string;
+	case JSON_V_NUMBER:
+		return offsetof(struct json_value, number) + sizeof ((struct json_value *)0)->number;
+	case JSON_V_BOOLEAN:
+		return offsetof(struct json_value, boolean) + sizeof ((struct json_value *)0)->boolean;
+	default:
+		return offsetof(struct json_value, array);
+	} /* switch() */
+} /* value_sizeof() */
+
+
+static struct json_value *value_open(enum json_values type, struct token *T, int *error) {
+	struct json_value *V;
+
+	if (!(V = make0(value_sizeof(type), error)))
+		return 0;
+
+	if (T) {
+		switch (type) {
+		case JSON_V_STRING:
+			V->string = T->string;
+			T->string = 0; /* steal the string */
+			break;
+		case JSON_V_NUMBER:
+			V->number = T->number;
+			break;
+		case JSON_V_BOOLEAN:
+			V->boolean = T->boolean;
+			break;
+		default:
+			break;
+		} /* switch() */
+	} /* if (T) */
+
+	return V;
+} /* value_open() */
+
+
+static void value_close(struct json_value *);
+
+static int array_push(struct json_value *A, struct json_value *V) {
+	struct node *N;
+	int error;
+
+	if (!(N = make(sizeof *N, &error)))
+		return error;
+
+	N->index = A->array.count++;
+	N->value = V;
+	N->parent = A;
+	V->node = N;
+
+	LLRB_INSERT(array, &V->array.nodes, N);
+
+	return 0;
+} /* array_push() */
+
+
+static int object_insert(struct json_value *O, struct json_value *K, struct json_value *V) {
+	struct node *N, *prev;
+	int error;
+
+	if (!(N = make(sizeof *N, &error)))
+		return error;
+
+	N->key = K;
+	N->value = V;
+	N->parent = O;
+	K->node = N;
+	V->node = N;
+
+	if (!(prev = LLRB_INSERT(object, &O->object.nodes, N)))
+		return 0;
+
+	free(N);
+
+	value_close(prev->key);
+	value_close(prev->value);
+
+	prev->key = K;
+	prev->value = V;
+	K->node = prev;
+	V->node = prev;
+
+	return 0;
+} /* object_insert() */
+
+
+CIRCLEQ_HEAD(orphans, node);
+
+static void array_remove(struct json_value *V, struct node *N, struct orphans *indices) {
+	LLRB_REMOVE(array, &V->array.nodes, N);
+	N->parent = 0;
+
+	CIRCLEQ_INSERT_TAIL(indices, N, cqe);
+} /* array_remove() */
+
+
+static void array_clear(struct json_value *V, struct orphans *indices) {
+	struct node *N, *nxt;
+
+	for (N = LLRB_MIN(array, &V->array.nodes); N; N = nxt) {
+		nxt = LLRB_NEXT(array, &V->array.nodes, N);
+
+		array_remove(V, N, indices);
+	}
+} /* array_clear() */
+
+
+static void object_remove(struct json_value *V, struct node *N, struct orphans *keys) {
+	LLRB_REMOVE(object, &V->object.nodes, N);
+	N->parent = 0;
+
+	CIRCLEQ_INSERT_TAIL(keys, N, cqe);
+} /* object_remove() */
+
+
+static void object_clear(struct json_value *V, struct orphans *keys) {
+	struct node *N, *nxt;
+
+	for (N = LLRB_MIN(object, &V->object.nodes); N; N = nxt) {
+		nxt = LLRB_NEXT(object, &V->array.nodes, N);
+
+		object_remove(V, N, keys);
+	}
+} /* object_clear() */
+
+
+static void value_clear(struct json_value *V, struct orphans *indices, struct orphans *keys) {
+	if (V->type == JSON_V_ARRAY)
+		array_clear(V, indices);
+	else if (V->type == JSON_V_OBJECT)
+		object_clear(V, keys);
+} /* value_clear() */
+
+
+static void value_destroy(struct json_value *V, struct orphans *indices, struct orphans *keys) {
+	value_clear(V, indices, keys);
+
+	if (V->type == JSON_V_STRING) {
+		free(V->string);
+		V->string = 0;
+	}
+} /* value_destroy() */
+
+
+static void node_remove(struct node *N, struct orphans *indices, struct orphans *keys) {
+	if (N->parent->type == JSON_V_ARRAY)
+		array_remove(N->parent, N, indices);
+	else
+		object_remove(N->parent, N, keys);
+} /* node_remove() */
+
+
+static void value_close(struct json_value *V) {
+	struct orphans indices, keys;
+	struct node *N;
+
+	CIRCLEQ_INIT(&indices);
+	CIRCLEQ_INIT(&keys);
+
+	value_destroy(V, &indices, &keys);
+
+	do {
+		while (!CIRCLEQ_EMPTY(&indices)) {
+			N = CIRCLEQ_FIRST(&indices);
+			CIRCLEQ_REMOVE(&indices, N, cqe);
+
+			value_destroy(N->value, &indices, &keys);
+			free(N->value);
+			free(N);
+		}
+
+		while (!CIRCLEQ_EMPTY(&keys)) {
+			N = CIRCLEQ_FIRST(&keys);
+			CIRCLEQ_REMOVE(&keys, N, cqe);
+
+			value_destroy(N->key, &indices, &keys);
+			free(N->key);
+
+			value_destroy(N->value, &indices, &keys);
+			free(N->value);
+
+			free(N);
+		}
+	} while (!CIRCLEQ_EMPTY(&indices) || !CIRCLEQ_EMPTY(&keys));
+} /* value_close() */
 
 
 struct printer {
 	int state, error;
-	struct value *value;
+	struct json_value *value;
 
 	char literal[64];
 
@@ -561,7 +810,7 @@ struct printer {
 
 #define END } (void)0
 
-static size_t simple_print(struct printer *P, char *dst, size_t lim, struct value *V) {
+static size_t simple_print(struct printer *P, char *dst, size_t lim, struct json_value *V) {
 	char *p = dst, *pe = &dst[lim];
 
 	RESUME();
@@ -664,8 +913,14 @@ error:
 	END;
 } /* simple_print() */
 
+#undef RESUME
+#undef YIELD
+#undef PUTCHAR
+#undef RETURN
+#undef END
 
-static int simple_fprint(struct value *V, FILE *fp) {
+
+static int simple_fprint(struct json_value *V, FILE *fp) {
 	struct printer P;
 	char tmp[8];
 	size_t count;
@@ -678,6 +933,221 @@ static int simple_fprint(struct value *V, FILE *fp) {
 
 	return P.error;
 } /* simple_fprint() */
+
+
+struct parser {
+	struct lexer lexer;
+	CIRCLEQ_HEAD(, token) tokens;
+	void *state;
+	struct json_value *root;
+	struct json_value *key;
+	struct json_value *value;
+	int error;
+}; /* struct parser */
+
+
+static void parse_init(struct parser *P) {
+	lex_init(&P->lexer);
+	CIRCLEQ_INIT(&P->tokens);
+} /* parse_init() */
+
+
+static struct json_value *tovalue(struct token *T, int *error) {
+	/* value types identical to relevant token types */
+	return value_open(T->type, T, error);
+} /* tovalue() */
+
+
+#define RESUME() do { \
+	T = (CIRCLEQ_EMPTY(&P->tokens))? 0 : CIRCLEQ_LAST(&P->tokens); \
+	goto *((P->state)? P->state : &&start); \
+} while (0)
+
+#define YIELD() do { \
+	P->state = &&XPASTE(L, __LINE__); \
+	return EAGAIN; \
+	XPASTE(L, __LINE__): (void)0; \
+} while (0)
+
+#define STOP(why) do { \
+	P->error = (why); \
+	P->state = &&XPASTE(L, __LINE__); \
+	XPASTE(L, __LINE__): return P->error; \
+} while (0)
+
+#define POPTOKEN() do { \
+	while (CIRCLEQ_EMPTY(&P->lexer.tokens)) \
+		YIELD(); \
+	T = CIRCLEQ_FIRST(&P->lexer.tokens); \
+	CIRCLEQ_REMOVE(&P->lexer.tokens, T, cqe); \
+	CIRCLEQ_INSERT_TAIL(&P->tokens, T, cqe); \
+} while (0)
+
+#define POPSTACK() do { \
+	void *state = P->root->state; \
+	if (P->root->node) \
+		P->root = P->root->node->parent; \
+	goto *state; \
+} while (0)
+
+#define PUSHARRAY(V) do { \
+	(V)->state = &&XPASTE(L, __LINE__); \
+	P->root = V; \
+	goto array; \
+	XPASTE(L, __LINE__): (void)0; \
+} while (0)
+
+#define PUSHOBJECT(V) do { \
+	(V)->state = &&XPASTE(L, __LINE__); \
+	P->root = V; \
+	goto object; \
+	XPASTE(L, __LINE__): (void)0; \
+} while (0)
+
+#define TOVALUE(T) do { \
+	if (!(P->value = V = tovalue(T, &error))) \
+		STOP(error); \
+} while (0)
+
+#define TOKEY(T) do { \
+	if (!(P->key = V = tovalue(T, &error))) \
+		STOP(error); \
+} while (0)
+
+#define INSERT2ARRAY() do { \
+	if ((error = array_push(P->root, P->value))) \
+		STOP(error); \
+	P->value = 0; \
+} while (0)
+
+#define INSERT2OBJECT() do { \
+	if ((error = object_insert(P->root, P->key, P->value))) \
+		STOP(error); \
+	P->key = 0; \
+	P->value = 0; \
+} while (0)
+
+#define LOOP for (;;)
+
+static int parse(struct parser *P, const void *src, size_t len) {
+	struct token *T;
+	struct json_value *V;
+	int error;
+
+	if ((error = lex_parse(&P->lexer, src, len)))
+		return error;
+
+	RESUME();
+start:
+	POPTOKEN();
+
+	switch (T->type) {
+	case T_BEGIN_ARRAY:
+		if (!(P->root = value_open(JSON_V_ARRAY, T, &error)))
+			STOP(error);
+
+		P->root->state = &&stop;
+
+		goto array;
+	case T_BEGIN_OBJECT:
+		if (!(P->root = value_open(JSON_V_OBJECT, T, &error)))
+			STOP(error);
+
+		P->root->state = &&stop;
+
+		goto object;
+	default:
+		STOP(JSON_ESYNTAX);
+	} /* switch() */
+array:
+	LOOP {
+		POPTOKEN();
+
+		switch (T->type) {
+		case T_BEGIN_ARRAY:
+			TOVALUE(T);
+
+			INSERT2ARRAY();
+
+			PUSHARRAY(V);
+
+			break;
+		case T_END_ARRAY:
+			POPSTACK();
+		case T_BEGIN_OBJECT:
+			TOVALUE(T);
+
+			INSERT2ARRAY();
+
+			PUSHOBJECT(V);
+
+			break;
+		case T_END_OBJECT:
+			STOP(JSON_ESYNTAX);
+		case T_VALUE_SEPARATOR:
+			break;
+		case T_NAME_SEPARATOR:
+			STOP(JSON_ESYNTAX);
+		default:
+			TOVALUE(T);
+
+			INSERT2ARRAY();
+
+			break;
+		} /* switch() */
+	} /* LOOP */
+object:
+	LOOP {
+		POPTOKEN();
+
+		if (T->type == T_END_OBJECT)
+			POPSTACK();
+		else if (T->type != T_STRING)
+			STOP(JSON_ESYNTAX);
+
+		TOKEY(T);
+
+		POPTOKEN();
+
+		if (T->type != T_NAME_SEPARATOR)
+			STOP(JSON_ESYNTAX);
+
+		POPTOKEN();
+
+		switch (T->type) {
+		case T_BEGIN_ARRAY:
+			TOVALUE(T);
+
+			INSERT2OBJECT();
+
+			PUSHARRAY(V);
+
+			break;
+		case T_END_ARRAY:
+			STOP(JSON_ESYNTAX);
+		case T_BEGIN_OBJECT:
+			TOVALUE(T);
+
+			INSERT2OBJECT();
+
+			PUSHOBJECT(V);
+
+			break;
+		case T_END_OBJECT:
+			STOP(JSON_ESYNTAX);
+		case T_NAME_SEPARATOR:
+			STOP(JSON_ESYNTAX);
+		default:
+			TOVALUE(T);
+
+			INSERT2OBJECT();
+
+			break;
+		} /* switch() */
+	} /* LOOP */
+stop:
+	return 0;
+} /* parse() */
 
 
 
