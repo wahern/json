@@ -49,11 +49,24 @@ static void *make0(size_t size, int *error) {
 
 
 enum json_errors {
-	JSON_EASSERT = 1,
+	JSON_EASSERT = -10,
 	JSON_ELEXICAL,
 	JSON_ESYNTAX,
 }; /* enum json_errors */
 
+
+const char *json_strerror(int error) {
+	static const char *descr[] = {
+		[JSON_EASSERT-JSON_EASSERT] = "JSON assertion",
+		[JSON_ELEXICAL-JSON_EASSERT] = "JSON lexical",
+		[JSON_ESYNTAX-JSON_EASSERT] = "JSON syntax",
+	};
+
+	if (error >= 0)
+		return strerror(error);
+
+	return descr[error - JSON_EASSERT];
+} /* json_strerror() */
 
 
 /*
@@ -785,9 +798,86 @@ static void value_close(struct json_value *V) {
 } /* value_close() */
 
 
+static struct json_value *value_descend(struct json_value *V) {
+	struct node *N;
+
+	if (V->type == JSON_V_ARRAY) {
+		if ((N = LLRB_MIN(array, &V->array.nodes)))
+			return N->value;
+	} else if (V->type == JSON_V_OBJECT) {
+		if ((N = LLRB_MIN(object, &V->object.nodes)))
+			return N->key;
+	}
+
+	return 0;
+} /* value_descend() */
+
+
+static struct node *node_next(struct node *N) {
+	if (N->parent->type == JSON_V_ARRAY)
+		return LLRB_NEXT(array, &N->parent->array.nodes, N);
+	else
+		return LLRB_NEXT(object, &N->parent->object.nodes, N);
+} /* node_next() */
+
+
+static struct json_value *value_sibling(struct json_value *V) {
+	struct node *N;
+
+	if ((N = node_next(V->node))) {
+		if (N->parent->type == JSON_V_ARRAY)
+			return N->value;
+		else
+			return N->key;
+	}
+
+	return 0;
+} /* value_sibling() */
+
+
+static _Bool value_iskey(struct json_value *V) {
+	return (V->node && V->node->parent->type == JSON_V_OBJECT);
+} /* value_iskey() */
+
+
+#define ORDER_PRE 0x01
+#define ORDER_POST 0x02
+
+static struct json_value *value_next(struct json_value *V, int *order) {
+	struct json_value *nxt;
+
+	if ((*order & ORDER_PRE) && (V->type == JSON_V_ARRAY || V->type == JSON_V_OBJECT)) {
+		if ((nxt = value_descend(V)))
+			return nxt;
+
+		*order = ORDER_POST;
+
+		return V;
+	} else if (!V->node) {
+		return 0;
+	} else if (value_iskey(V)) {
+		*order = ORDER_PRE;
+
+		return V->node->value;
+	} else if ((nxt = value_sibling(V))) {
+		*order = ORDER_PRE;
+
+		return nxt;
+	} else {
+		*order = ORDER_POST;
+
+		return V->node->parent;
+	}
+} /* value_next() */
+
+
+#define PRINT_PRETTY 0x01
+
 struct printer {
-	int state, error;
-	struct json_value *value;
+	int flags, state, sstate, order, error;
+	struct json_value *root, *value;
+
+	unsigned i, depth;
 
 	char literal[64];
 
@@ -796,11 +886,20 @@ struct printer {
 	} ibuf;
 }; /* struct printer */
 
-#define RESUME() switch (P->state) { case 0: (void)0
 
-#define YIELD() P->state = __LINE__; return p - dst; case __LINE__: (void)0
+static void print_init(struct printer *P, struct json_value *V, int flags) {
+	memset(P, 0, sizeof *P);
+	P->flags = flags;
+	P->order = (V->type == JSON_V_ARRAY || V->type == JSON_V_OBJECT)? ORDER_PRE : ORDER_POST;
+	P->root = P->value = V;
+} /* print_init() */
 
-#define RETURN() P->state = __LINE__; case __LINE__: return p - dst
+
+#define RESUME() switch (P->sstate) { case 0: (void)0
+
+#define YIELD() P->sstate = __LINE__; return p - (char *)dst; case __LINE__: (void)0
+
+#define STOP() P->sstate = __LINE__; case __LINE__: return p - (char *)dst
 
 #define PUTCHAR(ch) do { \
 	while (p >= pe) \
@@ -810,18 +909,38 @@ struct printer {
 
 #define END } (void)0
 
-static size_t simple_print(struct printer *P, char *dst, size_t lim, struct json_value *V) {
-	char *p = dst, *pe = &dst[lim];
+static size_t print_simple(struct printer *P, void *dst, size_t lim, struct json_value *V, int order) {
+	char *p = dst, *pe = p + lim;
 
 	RESUME();
 
 	switch (V->type) {
-	case T_STRING:
+	case JSON_V_ARRAY:
+		if (order & ORDER_PRE)
+			P->literal[0] = '[';
+		else
+			P->literal[0] = ']';
+
+		P->ibuf.p = P->literal;
+		P->ibuf.pe = &P->literal[1];
+
+		goto literal;
+	case JSON_V_OBJECT:
+		if (order & ORDER_PRE)
+			P->literal[0] = '{';
+		else
+			P->literal[0] = '}';
+
+		P->ibuf.p = P->literal;
+		P->ibuf.pe = &P->literal[1];
+
+		goto literal;
+	case JSON_V_STRING:
 		P->ibuf.p = V->string->text;
 		P->ibuf.pe = &V->string->text[V->string->length];
 
 		goto string;
-	case T_NUMBER: {
+	case JSON_V_NUMBER: {
 		double i;
 		int count;
 
@@ -845,7 +964,7 @@ static size_t simple_print(struct printer *P, char *dst, size_t lim, struct json
 
 		goto literal;
 	}
-	case T_BOOLEAN: {
+	case JSON_V_BOOLEAN: {
 		size_t count = strlcpy(P->literal, ((V->boolean)? "true" : "false"), sizeof P->literal);
 
 		P->ibuf.p = P->literal;
@@ -853,7 +972,7 @@ static size_t simple_print(struct printer *P, char *dst, size_t lim, struct json
 
 		goto literal;
 	}
-	case T_NULL: {
+	case JSON_V_NULL: {
 		size_t count = strlcpy(P->literal, "null", sizeof P->literal);
 
 		P->ibuf.p = P->literal;
@@ -861,8 +980,6 @@ static size_t simple_print(struct printer *P, char *dst, size_t lim, struct json
 
 		goto literal;
 	}
-	default:
-		return 0;
 	} /* switch (V->type) */
 string:
 	PUTCHAR('"');
@@ -901,39 +1018,117 @@ string:
 
 	PUTCHAR('"');
 
-	RETURN();
+	STOP();
 literal:
 	while (P->ibuf.p < P->ibuf.pe)
 		PUTCHAR(*P->ibuf.p++);
 
-	RETURN();
+	STOP();
 error:
-	RETURN();
+	STOP();
 
 	END;
-} /* simple_print() */
+
+	return 0;
+} /* print_simple() */
 
 #undef RESUME
 #undef YIELD
 #undef PUTCHAR
-#undef RETURN
+#undef STOP
 #undef END
 
 
-static int simple_fprint(struct json_value *V, FILE *fp) {
-	struct printer P;
-	char tmp[8];
+#define RESUME() switch (P->state) { case 0: (void)0
+
+#define YIELD() P->state = __LINE__; return p - (char *)dst; case __LINE__: (void)0
+
+#define STOP() P->state = __LINE__; case __LINE__: return p - (char *)dst
+
+#define PUTCHAR(ch) do { \
+	while (p >= pe) \
+		YIELD(); \
+	*p++ = (ch); \
+} while (0)
+
+#define END } (void)0
+
+static size_t print(struct printer *P, void *dst, size_t lim) {
+	char *p = dst, *pe = p + lim;
 	size_t count;
 
-	memset(&P, 0, sizeof P);
+	RESUME();
 
-	while ((count = simple_print(&P, tmp, sizeof tmp, V))) {
-		fwrite(tmp, 1, count, fp);
+	while (P->value) {
+		if (P->value->type == JSON_V_ARRAY || P->value->type == JSON_V_OBJECT) {
+			if (P->order == ORDER_PRE)
+				P->depth++;
+			else
+				P->depth--;
+		}
+
+		P->i = 1;
+
+		while (P->i < P->depth)
+			PUTCHAR('\t');
+
+		P->sstate = 0;
+
+		while ((count = print_simple(P, p, pe - p, P->value, P->order)))
+			p += count;
+
+		if (P->error)
+			STOP();
+
+		if (P->value == P->root && P->order == ORDER_POST)
+			STOP();
+
+		if (value_iskey(P->value)) {
+			PUTCHAR(' ');
+			PUTCHAR(':');
+			PUTCHAR(' ');
+		} else {
+			PUTCHAR(',');
+			PUTCHAR('\n');
+		}
+
+		P->value = value_next(P->value, &P->order);
+	}
+
+	STOP();
+
+	END;
+
+	return 0;
+} /* print() */
+
+#undef RESUME
+#undef YIELD
+#undef PUTCHAR
+#undef STOP
+#undef END
+
+
+static int printfile(struct json_value *V, int flags, FILE *fp) {
+	struct printer P;
+	char obuf[512];
+	size_t count;
+
+	print_init(&P, V, flags);
+
+	while ((count = print(&P, obuf, sizeof obuf))) {
+		if (count != fwrite(obuf, 1, count, fp))
+			return errno;
 	}
 
 	return P.error;
-} /* simple_fprint() */
+} /* printfile() */
 
+
+/*
+ * P A R S E R  R O U T I N E S
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 struct parser {
 	struct lexer lexer;
@@ -1150,10 +1345,42 @@ stop:
 } /* parse() */
 
 
+static int parsefile(struct parser *P, FILE *fp) {
+	char ibuf[1024];
+	size_t count;
+	int error;
+
+	while ((count = fread(ibuf, 1, sizeof ibuf, fp))) {
+		if ((error = parse(P, ibuf, count)))
+			return error;
+	}
+
+	if (ferror(fp))
+		return errno;
+
+	return 0;
+} /* parsefile() */
+
 
 #include <stdio.h>
 #include <err.h>
 
+#if 1
+int main(void) {
+	struct parser parser;
+	int error;
+
+	parse_init(&parser);
+
+	if ((error = parsefile(&parser, stdin)))
+		errx(1, "stdin: %s", json_strerror(error));
+
+	if ((error = printfile(parser.root, PRINT_PRETTY, stdout)))
+		errx(1, "stdout: %s", json_strerror(error));
+
+	return 0;
+} /* main() */
+#else
 int main(void) {
 	struct lexer L;
 	char ibuf[1];
@@ -1185,4 +1412,4 @@ int main(void) {
 
 	return 0;
 } /* main() */
-
+#endif
