@@ -1,7 +1,7 @@
 #include <stddef.h>	/* size_t offsetof */
 #include <stdarg.h>	/* va_list va_start va_end va_arg */
 #include <stdlib.h>	/* malloc(3) realloc(3) free(3) strtod(3) */
-#include <stdio.h>	/* snprintf(3) */
+#include <stdio.h>	/* snprintf(3) fopen(3) fclose(3) ferror(3) clearerr(3) */
 
 #include <string.h>	/* memset(3) strncmp(3) */
 
@@ -14,6 +14,7 @@
 #include <sys/queue.h>
 
 #include "llrb.h"
+#include "json.h"
 
 
 /*
@@ -163,6 +164,14 @@ static void lex_init(struct lexer *L) {
 } /* lex_init() */
 
 
+static void tok_free(struct token *T) {
+	if (T->type == T_STRING)
+		free(T->string);
+
+	free(T);	
+} /* tok_free() */
+
+
 static void lex_destroy(struct lexer *L) {
 	struct token *T;
 
@@ -170,10 +179,7 @@ static void lex_destroy(struct lexer *L) {
 		T = CIRCLEQ_FIRST(&L->tokens);
 		CIRCLEQ_REMOVE(&L->tokens, T, cqe);
 
-		if (T->type == T_STRING)
-			free(T->string);
-
-		free(T);
+		tok_free(T);
 	} /* while (tokens) */
 
 	free(L->string);
@@ -610,6 +616,20 @@ static int object_cmp(struct node *a, struct node *b) {
 LLRB_GENERATE(object, node, rbe, object_cmp)
 
 
+static const char *value_strtype(enum json_values type) {
+	static const char *name[] = {
+		[JSON_V_ARRAY] = "array",
+		[JSON_V_OBJECT] = "object",
+		[JSON_V_STRING] = "string",
+		[JSON_V_NUMBER] = "number",
+		[JSON_V_BOOLEAN] = "boolean",
+		[JSON_V_NULL] = "null",
+	};
+
+	return name[type];
+} /* value_strtype() */
+
+
 static size_t value_sizeof(enum json_values type) {
 	switch (type) {
 	case JSON_V_ARRAY:
@@ -839,7 +859,7 @@ static struct node *node_next(struct node *N) {
 static struct json_value *value_adjacent(struct json_value *V) {
 	struct node *N;
 
-	if ((N = node_next(V->node))) {
+	if (V->node && (N = node_next(V->node))) {
 		if (N->parent->type == JSON_V_ARRAY)
 			return N->value;
 		else
@@ -906,11 +926,9 @@ static struct json_value *value_next(struct json_value *V, int *order, int *dept
  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-#define PRINT_PRETTY 0x01
-
 struct printer {
 	int flags, state, sstate, order, error;
-	struct json_value *root, *value;
+	struct json_value *value;
 
 	int i, depth;
 
@@ -918,15 +936,14 @@ struct printer {
 
 	struct {
 		char *p, *pe;
-	} vbuf;
+	} buffer;
 }; /* struct printer */
 
 
 static void print_init(struct printer *P, struct json_value *V, int flags) {
 	memset(P, 0, sizeof *P);
 	P->flags = flags;
-//	P->order = (V->type == JSON_V_ARRAY || V->type == JSON_V_OBJECT)? ORDER_PRE : ORDER_POST;
-	P->root = P->value = V;
+	P->value = V;
 } /* print_init() */
 
 
@@ -963,8 +980,8 @@ static size_t print_simple(struct printer *P, void *dst, size_t lim, struct json
 		else
 			P->literal[0] = ']';
 
-		P->vbuf.p = P->literal;
-		P->vbuf.pe = &P->literal[1];
+		P->buffer.p = P->literal;
+		P->buffer.pe = &P->literal[1];
 
 		goto literal;
 	case JSON_V_OBJECT:
@@ -973,13 +990,13 @@ static size_t print_simple(struct printer *P, void *dst, size_t lim, struct json
 		else
 			P->literal[0] = '}';
 
-		P->vbuf.p = P->literal;
-		P->vbuf.pe = &P->literal[1];
+		P->buffer.p = P->literal;
+		P->buffer.pe = &P->literal[1];
 
 		goto literal;
 	case JSON_V_STRING:
-		P->vbuf.p = V->string->text;
-		P->vbuf.pe = &V->string->text[V->string->length];
+		P->buffer.p = V->string->text;
+		P->buffer.pe = &V->string->text[V->string->length];
 
 		goto string;
 	case JSON_V_NUMBER: {
@@ -1001,24 +1018,24 @@ static size_t print_simple(struct printer *P, void *dst, size_t lim, struct json
 			goto error;
 		}
 
-		P->vbuf.p = P->literal;
-		P->vbuf.pe = &P->literal[count];
+		P->buffer.p = P->literal;
+		P->buffer.pe = &P->literal[count];
 
 		goto literal;
 	}
 	case JSON_V_BOOLEAN: {
 		size_t count = strlcpy(P->literal, ((V->boolean)? "true" : "false"), sizeof P->literal);
 
-		P->vbuf.p = P->literal;
-		P->vbuf.pe = &P->literal[count];
+		P->buffer.p = P->literal;
+		P->buffer.pe = &P->literal[count];
 
 		goto literal;
 	}
 	case JSON_V_NULL: {
 		size_t count = strlcpy(P->literal, "null", sizeof P->literal);
 
-		P->vbuf.p = P->literal;
-		P->vbuf.pe = &P->literal[count];
+		P->buffer.p = P->literal;
+		P->buffer.pe = &P->literal[count];
 
 		goto literal;
 	}
@@ -1026,35 +1043,35 @@ static size_t print_simple(struct printer *P, void *dst, size_t lim, struct json
 string:
 	PUTCHAR('"');
 
-	while (P->vbuf.p < P->vbuf.pe) {
-		if (isgraph(*P->vbuf.p)) {
-			if (*P->vbuf.p == '"' || *P->vbuf.p == '/' || *P->vbuf.p == '\\')
+	while (P->buffer.p < P->buffer.pe) {
+		if (isgraph(*P->buffer.p)) {
+			if (*P->buffer.p == '"' || *P->buffer.p == '/' || *P->buffer.p == '\\')
 				PUTCHAR('\\');
-			PUTCHAR(*P->vbuf.p++);
-		} else if (*P->vbuf.p == ' ') {
-			PUTCHAR(*P->vbuf.p++);
+			PUTCHAR(*P->buffer.p++);
+		} else if (*P->buffer.p == ' ') {
+			PUTCHAR(*P->buffer.p++);
 		} else {
 			PUTCHAR('\\');
 
-			if (*P->vbuf.p == '\b')
+			if (*P->buffer.p == '\b')
 				PUTCHAR('b');
-			else if (*P->vbuf.p == '\f')
+			else if (*P->buffer.p == '\f')
 				PUTCHAR('f');
-			else if (*P->vbuf.p == '\n')
+			else if (*P->buffer.p == '\n')
 				PUTCHAR('n');
-			else if (*P->vbuf.p == '\r')
+			else if (*P->buffer.p == '\r')
 				PUTCHAR('r');
-			else if (*P->vbuf.p == '\t')
+			else if (*P->buffer.p == '\t')
 				PUTCHAR('t');
 			else {
 				PUTCHAR('u');
 				PUTCHAR('0');
 				PUTCHAR('0');
-				PUTCHAR("0123456789abcdef"[0x0f & (*P->vbuf.p >> 4)]);
-				PUTCHAR("0123456789abcdef"[0x0f & (*P->vbuf.p >> 0)]);
+				PUTCHAR("0123456789abcdef"[0x0f & (*P->buffer.p >> 4)]);
+				PUTCHAR("0123456789abcdef"[0x0f & (*P->buffer.p >> 0)]);
 			}
 
-			P->vbuf.p++;
+			P->buffer.p++;
 		}
 	} /* while() */
 
@@ -1062,8 +1079,8 @@ string:
 
 	STOP();
 literal:
-	while (P->vbuf.p < P->vbuf.pe)
-		PUTCHAR(*P->vbuf.p++);
+	while (P->buffer.p < P->buffer.pe)
+		PUTCHAR(*P->buffer.p++);
 
 	STOP();
 error:
@@ -1114,7 +1131,7 @@ static size_t print(struct printer *P, void *dst, size_t lim) {
 
 	while ((P->value = value_next(P->value, &P->order, &P->depth))) {
 		if ((!value_isvalue(P->value) || (P->order & ORDER_POST))
-		&&  (P->flags & PRINT_PRETTY)) {
+		&&  (P->flags & JSON_PRETTY)) {
 			for (P->i = 0; P->i < P->depth; P->i++)
 				PUTCHAR('\t');
 		}
@@ -1132,19 +1149,22 @@ static size_t print(struct printer *P, void *dst, size_t lim) {
 		if (P->error)
 			STOP();
 
+#if 0
 		if (P->value == P->root && P->order == ORDER_POST) {
 			PUTCHAR('\n');
 			STOP();
 		}
+#endif
 
 		if (value_iskey(P->value)) {
-			PUTCHAR(' ', (P->flags & PRINT_PRETTY));
+			PUTCHAR(' ', (P->flags & JSON_PRETTY));
 			PUTCHAR(':');
-			PUTCHAR(' ', (P->flags & PRINT_PRETTY));
+			PUTCHAR(' ', (P->flags & JSON_PRETTY));
 		} else {
-			if (P->order == ORDER_POST || value_issimple(P->value))
+			if ((P->order == ORDER_POST || value_issimple(P->value))
+			&&  value_adjacent(P->value))
 				PUTCHAR(',');
-			PUTCHAR('\n', (P->flags & PRINT_PRETTY));
+			PUTCHAR('\n', (P->flags & JSON_PRETTY));
 		}
 	}
 
@@ -1160,22 +1180,6 @@ static size_t print(struct printer *P, void *dst, size_t lim) {
 #undef PUTCHAR
 #undef STOP
 #undef END
-
-
-static int printfile(struct json_value *V, int flags, FILE *fp) {
-	struct printer P;
-	char obuf[1];
-	size_t count;
-
-	print_init(&P, V, flags);
-
-	while ((count = print(&P, obuf, sizeof obuf))) {
-		if (count != fwrite(obuf, 1, count, fp))
-			return errno;
-	}
-
-	return P.error;
-} /* printfile() */
 
 
 /*
@@ -1199,6 +1203,20 @@ static void parse_init(struct parser *P) {
 	lex_init(&P->lexer);
 	CIRCLEQ_INIT(&P->tokens);
 } /* parse_init() */
+
+
+static void parse_destroy(struct parser *P) {
+	struct token *T;
+
+	lex_destroy(&P->lexer);
+
+	while (!CIRCLEQ_EMPTY(&P->tokens)) {
+		T = CIRCLEQ_FIRST(&P->tokens);
+		CIRCLEQ_REMOVE(&P->tokens, T, cqe);
+
+		tok_free(T);
+	} /* while (tokens) */
+} /* parse_destroy() */
 
 
 static struct json_value *tovalue(struct token *T, int *error) {
@@ -1399,21 +1417,118 @@ stop:
 } /* parse() */
 
 
-static int parsefile(struct parser *P, FILE *fp) {
-	char ibuf[1024];
+/*
+ * J S O N  C O R E  R O U T I N E S
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+struct json {
+	struct parser parser;
+	jmp_buf *trap;
+	struct json_value *root;
+}; /* struct json */
+
+
+struct json *json_open(int *error) {
+	struct json *J;
+
+	if (!(J = make(sizeof *J, error)))
+		return NULL;
+
+	parse_init(&J->parser);
+
+	return J;
+} /* json_open() */
+
+
+void json_close(struct json *J) {
+	parse_destroy(&J->parser);
+} /* json_close() */
+
+
+jmp_buf *json_setjmp(struct json *J, jmp_buf *trap) {
+	jmp_buf *otrap = J->trap;
+
+	J->trap = trap;
+
+	return otrap;
+} /* json_setjmp() */
+
+
+int json_throw(struct json *J, int error) {
+	if (J->trap)
+		_longjmp(*J->trap, error);
+
+	return error;
+} /* json_throw() */
+
+
+int json_loadfile(struct json *J, FILE *fp) {
+	char buffer[512];
 	size_t count;
 	int error;
 
-	while ((count = fread(ibuf, 1, sizeof ibuf, fp))) {
-		if ((error = parse(P, ibuf, count)))
-			return error;
+	clearerr(fp);
+
+	while ((count = fread(buffer, 1, sizeof buffer, fp))) {
+		if ((error = parse(&J->parser, buffer, count)))
+			return json_throw(J, error);
 	}
 
 	if (ferror(fp))
-		return errno;
+		return json_throw(J, errno);
 
 	return 0;
-} /* parsefile() */
+} /* json_loadfile() */
+
+
+int json_loadpath(struct json *J, const char *path) {
+	struct jsonxs xs;
+	FILE *fp = NULL;
+	int error;
+
+	if ((error = json_enter(J, &xs)))
+		goto leave;
+
+	if (!(fp = fopen(path, "r")))
+		json_throw(J, errno);
+
+	json_loadfile(J, fp);
+
+leave:
+	json_leave(J, &xs);
+
+	if (fp)
+		fclose(fp);
+
+	return (error)? json_throw(J, error) : 0;
+} /* json_loadpath() */
+
+
+int json_printfile(struct json *J, FILE *fp, int flags) {
+	struct printer P;
+	char buffer[512];
+	size_t count;
+	int error;
+
+	print_init(&P, J->parser.root, flags);
+
+	while ((count = print(&P, buffer, sizeof buffer))) {
+		if (count != fwrite(buffer, 1, count, fp))
+			goto syerr;
+	}
+
+	if ((error = P.error))
+		goto error;
+	else if (0 != fflush(fp))
+		goto syerr;
+
+	return 0;
+syerr:
+	error = errno;
+error:
+	return json_throw(J, error);
+} /* json_printfile() */
 
 
 #include <stdio.h>
@@ -1421,16 +1536,19 @@ static int parsefile(struct parser *P, FILE *fp) {
 
 #if 1
 int main(void) {
-	struct parser parser;
+	struct json *J;
 	int error;
 
-	parse_init(&parser);
 
-	if ((error = parsefile(&parser, stdin)))
+	J = json_open(&error);
+
+	if ((error = json_loadfile(J, stdin)))
 		errx(1, "stdin: %s", json_strerror(error));
 
-	if ((error = printfile(parser.root, PRINT_PRETTY, stdout)))
+	if ((error = json_printfile(J, stdout, JSON_PRETTY)))
 		errx(1, "stdout: %s", json_strerror(error));
+
+	json_close(J);
 
 	return 0;
 } /* main() */
