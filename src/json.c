@@ -695,7 +695,7 @@ static struct json_value *value_open(enum json_values type, struct token *T, int
 } /* value_open() */
 
 
-static void value_close(struct json_value *);
+static void value_close(struct json_value *, _Bool);
 
 static int array_push(struct json_value *A, struct json_value *V) {
 	struct node *N;
@@ -733,8 +733,8 @@ static int object_insert(struct json_value *O, struct json_value *K, struct json
 
 	free(N);
 
-	value_close(prev->key);
-	value_close(prev->value);
+	value_close(prev->key, 0);
+	value_close(prev->value, 0);
 
 	prev->key = K;
 	prev->value = V;
@@ -811,7 +811,7 @@ static void value_destroy(struct json_value *V, struct orphans *indices, struct 
 } /* value_destroy() */
 
 
-static void value_close(struct json_value *V) {
+static void value_close(struct json_value *V, _Bool node) {
 	struct orphans indices, keys;
 	struct node *N;
 
@@ -820,7 +820,7 @@ static void value_close(struct json_value *V) {
 
 	value_destroy(V, &indices, &keys);
 
-	if (V->node) {
+	if (V->node && node) {
 		node_remove(V->node, &indices, &keys);
 	} else {
 		free(V);
@@ -855,6 +855,16 @@ static void value_close(struct json_value *V) {
 static struct json_value *value_parent(struct json_value *V) {
 	return (V->node)? V->node->parent : NULL;
 } /* value_parent() */
+
+
+static struct json_value *value_root(struct json_value *top) {
+	struct json_value *nxt;
+
+	while (top && (nxt = value_parent(top)))
+		top = nxt;
+
+	return top;
+} /* value_root() */
 
 
 static _Bool value_issimple(struct json_value *V) {
@@ -1229,7 +1239,7 @@ static void parse_init(struct parser *P) {
 
 static void parse_destroy(struct parser *P) {
 	struct token *T;
-	struct json_value *top, *nxt;
+	struct json_value *root;
 
 	lex_destroy(&P->lexer);
 
@@ -1240,12 +1250,8 @@ static void parse_destroy(struct parser *P) {
 		tok_free(T);
 	} /* while (tokens) */
 
-	top = P->root;
-
-	for (top = P->root; top; top = nxt) {
-		nxt = value_parent(top);
-		value_close(top);
-	}
+	if ((root = value_root(P->root)))
+		value_close(root, 1);
 
 	P->root = NULL;
 } /* parse_destroy() */
@@ -1478,12 +1484,22 @@ struct json *json_open(int flags, int *error) {
 
 	parse_init(&J->parser);
 
+	J->trap = NULL;
+	J->root = NULL;
+
 	return J;
 } /* json_open() */
 
 
 void json_close(struct json *J) {
+	struct json_value *root;
+
 	parse_destroy(&J->parser);
+
+	if ((root = value_root(J->root)))
+		value_close(root, 1);
+
+	free(J);
 } /* json_close() */
 
 
