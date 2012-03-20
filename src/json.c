@@ -61,14 +61,18 @@ enum json_errors {
 	JSON_EASSERT = -10,
 	JSON_ELEXICAL,
 	JSON_ESYNTAX,
+	JSON_ETRUNCATED,
+	JSON_ENOMORE,
 }; /* enum json_errors */
 
 
 const char *json_strerror(int error) {
 	static const char *descr[] = {
 		[JSON_EASSERT-JSON_EASSERT] = "JSON assertion",
-		[JSON_ELEXICAL-JSON_EASSERT] = "JSON lexical",
-		[JSON_ESYNTAX-JSON_EASSERT] = "JSON syntax",
+		[JSON_ELEXICAL-JSON_EASSERT] = "JSON lexical error",
+		[JSON_ESYNTAX-JSON_EASSERT] = "JSON syntax error",
+		[JSON_ETRUNCATED-JSON_EASSERT] = "JSON truncated input",
+		[JSON_ENOMORE-JSON_EASSERT] = "JSON no more input needed",
 	};
 
 	if (error >= 0)
@@ -775,6 +779,14 @@ static void value_clear(struct json_value *V, struct orphans *indices, struct or
 } /* value_clear() */
 
 
+static void node_remove(struct node *N, struct orphans *indices, struct orphans *keys) {
+	if (N->parent->type == JSON_V_ARRAY)
+		array_remove(N->parent, N, indices);
+	else
+		object_remove(N->parent, N, keys);
+} /* node_remove() */
+
+
 static void value_destroy(struct json_value *V, struct orphans *indices, struct orphans *keys) {
 	value_clear(V, indices, keys);
 
@@ -785,14 +797,6 @@ static void value_destroy(struct json_value *V, struct orphans *indices, struct 
 } /* value_destroy() */
 
 
-static void node_remove(struct node *N, struct orphans *indices, struct orphans *keys) {
-	if (N->parent->type == JSON_V_ARRAY)
-		array_remove(N->parent, N, indices);
-	else
-		object_remove(N->parent, N, keys);
-} /* node_remove() */
-
-
 static void value_close(struct json_value *V) {
 	struct orphans indices, keys;
 	struct node *N;
@@ -801,6 +805,12 @@ static void value_close(struct json_value *V) {
 	CIRCLEQ_INIT(&keys);
 
 	value_destroy(V, &indices, &keys);
+
+	if (V->node) {
+		node_remove(V->node, &indices, &keys);
+	} else {
+		free(V);
+	}
 
 	do {
 		while (!CIRCLEQ_EMPTY(&indices)) {
@@ -826,6 +836,11 @@ static void value_close(struct json_value *V) {
 		}
 	} while (!CIRCLEQ_EMPTY(&indices) || !CIRCLEQ_EMPTY(&keys));
 } /* value_close() */
+
+
+static struct json_value *value_parent(struct json_value *V) {
+	return (V->node)? V->node->parent : NULL;
+} /* value_parent() */
 
 
 static _Bool value_issimple(struct json_value *V) {
@@ -1149,13 +1164,6 @@ static size_t print(struct printer *P, void *dst, size_t lim) {
 		if (P->error)
 			STOP();
 
-#if 0
-		if (P->value == P->root && P->order == ORDER_POST) {
-			PUTCHAR('\n');
-			STOP();
-		}
-#endif
-
 		if (value_iskey(P->value)) {
 			PUTCHAR(' ', (P->flags & JSON_PRETTY));
 			PUTCHAR(':');
@@ -1207,6 +1215,7 @@ static void parse_init(struct parser *P) {
 
 static void parse_destroy(struct parser *P) {
 	struct token *T;
+	struct json_value *top, *nxt;
 
 	lex_destroy(&P->lexer);
 
@@ -1216,6 +1225,15 @@ static void parse_destroy(struct parser *P) {
 
 		tok_free(T);
 	} /* while (tokens) */
+
+	top = P->root;
+
+	for (top = P->root; top; top = nxt) {
+		nxt = value_parent(top);
+		value_close(top);
+	}
+
+	P->root = NULL;
 } /* parse_destroy() */
 
 
@@ -1423,17 +1441,20 @@ stop:
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 struct json {
+	int flags;
 	struct parser parser;
 	jmp_buf *trap;
 	struct json_value *root;
 }; /* struct json */
 
 
-struct json *json_open(int *error) {
+struct json *json_open(int flags, int *error) {
 	struct json *J;
 
 	if (!(J = make(sizeof *J, error)))
 		return NULL;
+
+	J->flags = flags;
 
 	parse_init(&J->parser);
 
@@ -1463,22 +1484,76 @@ int json_throw(struct json *J, int error) {
 } /* json_throw() */
 
 
+static int json_parse_(struct json *J, const void *src, size_t len) {
+	int error;
+
+	if (J->root)
+		return 0;
+
+	if ((error = parse(&J->parser, src, len)))
+		return error;
+
+	J->root = J->parser.root;
+	J->parser.root = NULL;
+
+	parse_destroy(&J->parser);
+
+	return 0;
+} /* json_parse_() */
+
+
+int json_parse(struct json *J, const void *src, size_t len) {
+	int error;
+
+	if (J->root)
+		return json_throw(J, JSON_ENOMORE);
+
+	if ((error = parse(&J->parser, src, len)))
+		return json_throw(J, error);
+
+	return 0;
+} /* json_parse() */
+
+
+int json_loadlstring(struct json *J, const void *src, size_t len) {
+	int error;
+
+	if (J->root)
+		return json_throw(J, JSON_ENOMORE);
+
+	if ((error = json_parse_(J, src, len)))
+		return json_throw(J, (error == EAGAIN)? JSON_ETRUNCATED : error);
+
+	return 0;
+} /* json_loadlstring() */
+
+
+int json_loadstring(struct json *J, const char *src) {
+	return json_loadlstring(J, src, strlen(src));
+} /* json_loadstring() */
+
+
 int json_loadfile(struct json *J, FILE *fp) {
 	char buffer[512];
 	size_t count;
 	int error;
 
+	if (J->root)
+		return json_throw(J, JSON_ENOMORE);
+
 	clearerr(fp);
 
 	while ((count = fread(buffer, 1, sizeof buffer, fp))) {
-		if ((error = parse(&J->parser, buffer, count)))
+		if (!(error = json_parse_(J, buffer, count)))
+			return 0;
+		else if (error != EAGAIN)
 			return json_throw(J, error);
 	}
 
 	if (ferror(fp))
 		return json_throw(J, errno);
 
-	return 0;
+	return JSON_ETRUNCATED;
 } /* json_loadfile() */
 
 
@@ -1486,6 +1561,9 @@ int json_loadpath(struct json *J, const char *path) {
 	struct jsonxs xs;
 	FILE *fp = NULL;
 	int error;
+
+	if (J->root)
+		return json_throw(J, JSON_ENOMORE);
 
 	if ((error = json_enter(J, &xs)))
 		goto leave;
@@ -1507,11 +1585,19 @@ leave:
 
 int json_printfile(struct json *J, FILE *fp, int flags) {
 	struct printer P;
+	struct json_value *root, *parent;
 	char buffer[512];
 	size_t count;
 	int error;
 
-	print_init(&P, J->parser.root, flags);
+	if (!(root = J->root)) {
+		root = J->parser.root;
+
+		while ((parent = value_parent(root)))
+			root = parent;
+	}
+
+	print_init(&P, root, flags|J->flags);
 
 	while ((count = print(&P, buffer, sizeof buffer))) {
 		if (count != fwrite(buffer, 1, count, fp))
@@ -1532,27 +1618,38 @@ error:
 
 
 #include <stdio.h>
+#include <unistd.h>
 #include <err.h>
 
-#if 1
-int main(void) {
+
+int main(int argc, char *argv[]) {
 	struct json *J;
-	int error;
+	int flags = 0, opt, error;
 
+	while (-1 != (opt = getopt(argc, argv, "p"))) {
+		switch (opt) {
+		case 'p':
+			flags |= JSON_PRETTY;
 
-	J = json_open(&error);
+			break;
+		} /* switch() */
+	} /* switch() */
+
+	J = json_open(0, &error);
 
 	if ((error = json_loadfile(J, stdin)))
 		errx(1, "stdin: %s", json_strerror(error));
 
-	if ((error = json_printfile(J, stdout, JSON_PRETTY)))
+	if ((error = json_printfile(J, stdout, flags)))
 		errx(1, "stdout: %s", json_strerror(error));
 
 	json_close(J);
 
 	return 0;
 } /* main() */
-#else
+
+
+#if 0
 int main(void) {
 	struct lexer L;
 	char ibuf[1];

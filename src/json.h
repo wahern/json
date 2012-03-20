@@ -9,17 +9,22 @@
  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
+#define JSON_PRETTY 1
+#define JSON_TRACE  2
+
 struct json;
 
-struct json *json_open(int *);
+struct json *json_open(int, int *);
 
 void json_close(struct json *);
+
+int json_loadlstring(struct json *, const void *, size_t len);
+
+int json_loadstring(struct json *, const char *);
 
 int json_loadfile(struct json *, FILE *);
 
 int json_loadpath(struct json *, const char *);
-
-#define JSON_PRETTY 1
 
 int json_printfile(struct json *, FILE *, int);
 
