@@ -1385,10 +1385,16 @@ object:
 	LOOP {
 		POPTOKEN();
 
-		if (T->type == T_END_OBJECT)
+		switch (T->type) {
+		case T_END_OBJECT:
 			POPSTACK();
-		else if (T->type != T_STRING)
+		case T_VALUE_SEPARATOR:
+			continue;
+		case T_STRING:
+			break;
+		default:
 			STOP(JSON_ESYNTAX);
+		} /* switch (key) */
 
 		TOKEY(T);
 
