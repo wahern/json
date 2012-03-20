@@ -37,6 +37,20 @@
 #define HAI SAY("hai")
 
 
+#if __linux
+static size_t xstrlcpy(char *dst, const char *src, size_t len) {
+	char *end = stpncpy(dst, src, len);
+
+	if (len)
+		dst[len - 1] = '\0';
+
+	return end - dst;
+} /* xstrlcpy() */
+
+#define strlcpy(...) xstrlcpy(__VA_ARGS__)
+#endif
+
+
 static void *make(size_t size, int *error) {
 	void *p;
 
