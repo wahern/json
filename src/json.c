@@ -28,6 +28,14 @@
 #define CMP(a, b) (((a) < (b))? -1 : ((a) > (b))? 1 : 0)
 
 
+#define SAY_(file, func, line, fmt, ...) \
+	fprintf(stderr, "%s:%d: " fmt "%s", __func__, __LINE__, __VA_ARGS__)
+
+#define SAY(...) SAY_(__FILE__, __func__, __LINE__, __VA_ARGS__, "\n")
+
+#define HAI SAY("hai")
+
+
 static void *make(size_t size, int *error) {
 	void *p;
 
@@ -626,6 +634,8 @@ static struct json_value *value_open(enum json_values type, struct token *T, int
 	if (!(V = make0(value_sizeof(type), error)))
 		return 0;
 
+	V->type = type;
+
 	if (T) {
 		switch (type) {
 		case JSON_V_STRING:
@@ -661,7 +671,7 @@ static int array_push(struct json_value *A, struct json_value *V) {
 	N->parent = A;
 	V->node = N;
 
-	LLRB_INSERT(array, &V->array.nodes, N);
+	LLRB_INSERT(array, &A->array.nodes, N);
 
 	return 0;
 } /* array_push() */
@@ -798,6 +808,11 @@ static void value_close(struct json_value *V) {
 } /* value_close() */
 
 
+static _Bool value_issimple(struct json_value *V) {
+	return V->type != JSON_V_ARRAY && V->type != JSON_V_OBJECT;
+} /* value_issimple() */
+
+
 static struct json_value *value_descend(struct json_value *V) {
 	struct node *N;
 
@@ -821,7 +836,7 @@ static struct node *node_next(struct node *N) {
 } /* node_next() */
 
 
-static struct json_value *value_sibling(struct json_value *V) {
+static struct json_value *value_adjacent(struct json_value *V) {
 	struct node *N;
 
 	if ((N = node_next(V->node))) {
@@ -832,44 +847,64 @@ static struct json_value *value_sibling(struct json_value *V) {
 	}
 
 	return 0;
-} /* value_sibling() */
+} /* value_adjacent() */
 
 
 static _Bool value_iskey(struct json_value *V) {
-	return (V->node && V->node->parent->type == JSON_V_OBJECT);
+	return (V->node && V->node->parent->type == JSON_V_OBJECT && V->node->key == V);
 } /* value_iskey() */
+
+
+static _Bool value_isvalue(struct json_value *V) {
+	return (V->node && V->node->parent->type == JSON_V_OBJECT && V->node->value == V);
+} /* value_isvalue() */
 
 
 #define ORDER_PRE 0x01
 #define ORDER_POST 0x02
 
-static struct json_value *value_next(struct json_value *V, int *order) {
+static struct json_value *value_next(struct json_value *V, int *order, int *depth) {
 	struct json_value *nxt;
 
-	if ((*order & ORDER_PRE) && (V->type == JSON_V_ARRAY || V->type == JSON_V_OBJECT)) {
-		if ((nxt = value_descend(V)))
+	if (!*order) {
+		*order = ORDER_PRE;
+		*depth = 0;
+
+		return V;
+	} else if ((*order & ORDER_PRE) && (V->type == JSON_V_ARRAY || V->type == JSON_V_OBJECT)) {
+		if ((nxt = value_descend(V))) {
+			++*depth;
 			return nxt;
+		}
 
 		*order = ORDER_POST;
 
 		return V;
 	} else if (!V->node) {
-		return 0;
+		return NULL;
 	} else if (value_iskey(V)) {
 		*order = ORDER_PRE;
 
 		return V->node->value;
-	} else if ((nxt = value_sibling(V))) {
+	} else if ((nxt = value_adjacent(V))) {
 		*order = ORDER_PRE;
 
 		return nxt;
-	} else {
+	} else if (*depth > 0) {
 		*order = ORDER_POST;
+		--*depth;
 
 		return V->node->parent;
+	} else {
+		return NULL;
 	}
 } /* value_next() */
 
+
+/*
+ * P R I N T E R  R O U T I N E S
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 #define PRINT_PRETTY 0x01
 
@@ -877,29 +912,36 @@ struct printer {
 	int flags, state, sstate, order, error;
 	struct json_value *root, *value;
 
-	unsigned i, depth;
+	int i, depth;
 
 	char literal[64];
 
 	struct {
 		char *p, *pe;
-	} ibuf;
+	} vbuf;
 }; /* struct printer */
 
 
 static void print_init(struct printer *P, struct json_value *V, int flags) {
 	memset(P, 0, sizeof *P);
 	P->flags = flags;
-	P->order = (V->type == JSON_V_ARRAY || V->type == JSON_V_OBJECT)? ORDER_PRE : ORDER_POST;
+//	P->order = (V->type == JSON_V_ARRAY || V->type == JSON_V_OBJECT)? ORDER_PRE : ORDER_POST;
 	P->root = P->value = V;
 } /* print_init() */
 
 
 #define RESUME() switch (P->sstate) { case 0: (void)0
 
-#define YIELD() P->sstate = __LINE__; return p - (char *)dst; case __LINE__: (void)0
+#define YIELD() do { \
+	P->sstate = __LINE__; \
+	return p - (char *)dst; \
+	case __LINE__: (void)0; \
+} while (0)
 
-#define STOP() P->sstate = __LINE__; case __LINE__: return p - (char *)dst
+#define STOP() do { \
+	P->sstate = __LINE__; \
+	case __LINE__: return p - (char *)dst; \
+} while (0)
 
 #define PUTCHAR(ch) do { \
 	while (p >= pe) \
@@ -921,8 +963,8 @@ static size_t print_simple(struct printer *P, void *dst, size_t lim, struct json
 		else
 			P->literal[0] = ']';
 
-		P->ibuf.p = P->literal;
-		P->ibuf.pe = &P->literal[1];
+		P->vbuf.p = P->literal;
+		P->vbuf.pe = &P->literal[1];
 
 		goto literal;
 	case JSON_V_OBJECT:
@@ -931,13 +973,13 @@ static size_t print_simple(struct printer *P, void *dst, size_t lim, struct json
 		else
 			P->literal[0] = '}';
 
-		P->ibuf.p = P->literal;
-		P->ibuf.pe = &P->literal[1];
+		P->vbuf.p = P->literal;
+		P->vbuf.pe = &P->literal[1];
 
 		goto literal;
 	case JSON_V_STRING:
-		P->ibuf.p = V->string->text;
-		P->ibuf.pe = &V->string->text[V->string->length];
+		P->vbuf.p = V->string->text;
+		P->vbuf.pe = &V->string->text[V->string->length];
 
 		goto string;
 	case JSON_V_NUMBER: {
@@ -959,24 +1001,24 @@ static size_t print_simple(struct printer *P, void *dst, size_t lim, struct json
 			goto error;
 		}
 
-		P->ibuf.p = P->literal;
-		P->ibuf.pe = &P->literal[count];
+		P->vbuf.p = P->literal;
+		P->vbuf.pe = &P->literal[count];
 
 		goto literal;
 	}
 	case JSON_V_BOOLEAN: {
 		size_t count = strlcpy(P->literal, ((V->boolean)? "true" : "false"), sizeof P->literal);
 
-		P->ibuf.p = P->literal;
-		P->ibuf.pe = &P->literal[count];
+		P->vbuf.p = P->literal;
+		P->vbuf.pe = &P->literal[count];
 
 		goto literal;
 	}
 	case JSON_V_NULL: {
 		size_t count = strlcpy(P->literal, "null", sizeof P->literal);
 
-		P->ibuf.p = P->literal;
-		P->ibuf.pe = &P->literal[count];
+		P->vbuf.p = P->literal;
+		P->vbuf.pe = &P->literal[count];
 
 		goto literal;
 	}
@@ -984,35 +1026,35 @@ static size_t print_simple(struct printer *P, void *dst, size_t lim, struct json
 string:
 	PUTCHAR('"');
 
-	while (P->ibuf.p < P->ibuf.pe) {
-		if (isgraph(*P->ibuf.p)) {
-			if (*P->ibuf.p == '"' || *P->ibuf.p == '/' || *P->ibuf.p == '\\')
+	while (P->vbuf.p < P->vbuf.pe) {
+		if (isgraph(*P->vbuf.p)) {
+			if (*P->vbuf.p == '"' || *P->vbuf.p == '/' || *P->vbuf.p == '\\')
 				PUTCHAR('\\');
-			PUTCHAR(*P->ibuf.p++);
-		} else if (*P->ibuf.p == ' ') {
-			PUTCHAR(*P->ibuf.p++);
+			PUTCHAR(*P->vbuf.p++);
+		} else if (*P->vbuf.p == ' ') {
+			PUTCHAR(*P->vbuf.p++);
 		} else {
 			PUTCHAR('\\');
 
-			if (*P->ibuf.p == '\b')
+			if (*P->vbuf.p == '\b')
 				PUTCHAR('b');
-			else if (*P->ibuf.p == '\f')
+			else if (*P->vbuf.p == '\f')
 				PUTCHAR('f');
-			else if (*P->ibuf.p == '\n')
+			else if (*P->vbuf.p == '\n')
 				PUTCHAR('n');
-			else if (*P->ibuf.p == '\r')
+			else if (*P->vbuf.p == '\r')
 				PUTCHAR('r');
-			else if (*P->ibuf.p == '\t')
+			else if (*P->vbuf.p == '\t')
 				PUTCHAR('t');
 			else {
 				PUTCHAR('u');
 				PUTCHAR('0');
 				PUTCHAR('0');
-				PUTCHAR("0123456789abcdef"[0x0f & (*P->ibuf.p >> 4)]);
-				PUTCHAR("0123456789abcdef"[0x0f & (*P->ibuf.p >> 0)]);
+				PUTCHAR("0123456789abcdef"[0x0f & (*P->vbuf.p >> 4)]);
+				PUTCHAR("0123456789abcdef"[0x0f & (*P->vbuf.p >> 0)]);
 			}
 
-			P->ibuf.p++;
+			P->vbuf.p++;
 		}
 	} /* while() */
 
@@ -1020,8 +1062,8 @@ string:
 
 	STOP();
 literal:
-	while (P->ibuf.p < P->ibuf.pe)
-		PUTCHAR(*P->ibuf.p++);
+	while (P->vbuf.p < P->vbuf.pe)
+		PUTCHAR(*P->vbuf.p++);
 
 	STOP();
 error:
@@ -1039,17 +1081,28 @@ error:
 #undef END
 
 
-#define RESUME() switch (P->state) { case 0: (void)0
+#define RESUME switch (P->state) { case 0: (void)0
 
-#define YIELD() P->state = __LINE__; return p - (char *)dst; case __LINE__: (void)0
-
-#define STOP() P->state = __LINE__; case __LINE__: return p - (char *)dst
-
-#define PUTCHAR(ch) do { \
-	while (p >= pe) \
-		YIELD(); \
-	*p++ = (ch); \
+#define YIELD() do { \
+	P->state = __LINE__; \
+	return p - (char *)dst; \
+	case __LINE__: (void)0; \
 } while (0)
+
+#define STOP() do { \
+	P->state = __LINE__; \
+	case __LINE__: return p - (char *)dst; \
+} while (0)
+
+#define PUTCHAR_(ch, cond, ...) do { \
+	if ((cond)) { \
+		while (p >= pe) \
+			YIELD(); \
+		*p++ = (ch); \
+	} \
+} while (0)
+
+#define PUTCHAR(...) PUTCHAR_(__VA_ARGS__, 1)
 
 #define END } (void)0
 
@@ -1057,42 +1110,42 @@ static size_t print(struct printer *P, void *dst, size_t lim) {
 	char *p = dst, *pe = p + lim;
 	size_t count;
 
-	RESUME();
+	RESUME;
 
-	while (P->value) {
-		if (P->value->type == JSON_V_ARRAY || P->value->type == JSON_V_OBJECT) {
-			if (P->order == ORDER_PRE)
-				P->depth++;
-			else
-				P->depth--;
+	while ((P->value = value_next(P->value, &P->order, &P->depth))) {
+		if ((!value_isvalue(P->value) || (P->order & ORDER_POST))
+		&&  (P->flags & PRINT_PRETTY)) {
+			for (P->i = 0; P->i < P->depth; P->i++)
+				PUTCHAR('\t');
 		}
 
-		P->i = 1;
-
-		while (P->i < P->depth)
-			PUTCHAR('\t');
-
 		P->sstate = 0;
+		count = 0;
 
-		while ((count = print_simple(P, p, pe - p, P->value, P->order)))
+		do {
 			p += count;
+
+			if (!(p < pe))
+				YIELD();
+		} while ((count = print_simple(P, p, pe - p, P->value, P->order)));
 
 		if (P->error)
 			STOP();
 
-		if (P->value == P->root && P->order == ORDER_POST)
-			STOP();
-
-		if (value_iskey(P->value)) {
-			PUTCHAR(' ');
-			PUTCHAR(':');
-			PUTCHAR(' ');
-		} else {
-			PUTCHAR(',');
+		if (P->value == P->root && P->order == ORDER_POST) {
 			PUTCHAR('\n');
+			STOP();
 		}
 
-		P->value = value_next(P->value, &P->order);
+		if (value_iskey(P->value)) {
+			PUTCHAR(' ', (P->flags & PRINT_PRETTY));
+			PUTCHAR(':');
+			PUTCHAR(' ', (P->flags & PRINT_PRETTY));
+		} else {
+			if (P->order == ORDER_POST || value_issimple(P->value))
+				PUTCHAR(',');
+			PUTCHAR('\n', (P->flags & PRINT_PRETTY));
+		}
 	}
 
 	STOP();
@@ -1111,7 +1164,7 @@ static size_t print(struct printer *P, void *dst, size_t lim) {
 
 static int printfile(struct json_value *V, int flags, FILE *fp) {
 	struct printer P;
-	char obuf[512];
+	char obuf[1];
 	size_t count;
 
 	print_init(&P, V, flags);
@@ -1142,6 +1195,7 @@ struct parser {
 
 
 static void parse_init(struct parser *P) {
+	memset(P, 0, sizeof *P);
 	lex_init(&P->lexer);
 	CIRCLEQ_INIT(&P->tokens);
 } /* parse_init() */
@@ -1149,7 +1203,7 @@ static void parse_init(struct parser *P) {
 
 static struct json_value *tovalue(struct token *T, int *error) {
 	/* value types identical to relevant token types */
-	return value_open(T->type, T, error);
+	return value_open((enum json_values)T->type, T, error);
 } /* tovalue() */
 
 

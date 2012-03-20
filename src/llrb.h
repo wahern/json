@@ -53,7 +53,7 @@
 #define LLRB_H
 
 #define LLRB_VENDOR "william@25thandClement.com"
-#define LLRB_VERSION 0x20111022
+#define LLRB_VERSION 0x20120315
 
 #define LLRB_HEAD(name, type) \
 struct name { struct type *rbh_root; }
@@ -123,7 +123,7 @@ static inline void name##_LLRB_FIXUP(struct type **root) { \
 	if (LLRB_ISRED(LLRB_LEFT(*root, field), field) && LLRB_ISRED(LLRB_RIGHT(*root, field), field)) \
 		name##_LLRB_FLIP(*root); \
 } \
-static inline struct type *name##_LLRB_INSERT(struct name *head, struct type *elm) { \
+struct type *name##_LLRB_INSERT(struct name *head, struct type *elm) { \
 	struct type **root = &LLRB_ROOT(head); \
 	struct type *parent = 0; \
 	while (*root) { \
@@ -136,6 +136,8 @@ static inline struct type *name##_LLRB_INSERT(struct name *head, struct type *el
 		else \
 			return *root; \
 	} \
+	LLRB_LEFT((elm), field) = 0; \
+	LLRB_RIGHT((elm), field) = 0; \
 	LLRB_COLOR((elm), field) = LLRB_RED; \
 	LLRB_PARENT((elm), field) = parent; \
 	*root = (elm); \
@@ -163,7 +165,7 @@ static inline void name##_LLRB_MOVR(struct type **pivot) { \
 	} \
 } \
 static inline struct type *name##_DELETEMIN(struct name *head, struct type **root) { \
-	struct node **pivot = root, *deleted, *parent; \
+	struct type **pivot = root, *deleted, *parent; \
 	while (LLRB_LEFT(*pivot, field)) { \
 		if (!LLRB_ISRED(LLRB_LEFT(*pivot, field), field) && !LLRB_ISRED(LLRB_LEFT(LLRB_LEFT(*pivot, field), field), field)) \
 			name##_LLRB_MOVL(pivot); \
