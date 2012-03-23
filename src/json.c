@@ -2187,6 +2187,20 @@ static struct json_value *path_exec(struct json *J, struct json_path *path, int 
 } /* path_exec() */
 
 
+void json_delete(struct json *J, const char *fmt, ...) {
+	struct json_path path;
+	struct json_value *V;
+	int error = 0;
+
+	path_init(&path, fmt);
+
+	if ((V = path_exec(J, &path, 0, &error)))
+		json_v_delete(J, V);
+	else if (error)
+		json_throw(J, error);
+} /* json_delete() */
+
+
 int json_type(struct json *J, const char *fmt, ...) {
 	struct json_path path;
 	struct json_value *V;
@@ -2385,6 +2399,11 @@ int main(int argc, char **argv) {
 		if (!strcmp(cmd, "print")) {
 			if ((error = json_printfile(J, stdout, flags)))
 				errx(1, "stdout: %s", json_strerror(error));
+		} else if (!strcmp(cmd, "delete")) {
+			call_init(&fun, &ffi_type_void, (void *)&json_delete);
+			call_push(&fun, &ffi_type_pointer, J);
+			call_path(&fun, &argc, &argv);
+			call_exec(&fun);
 		} else if (!strcmp(cmd, "type")) {
 			call_init(&fun, &ffi_type_sint, (void *)&json_type);
 			call_push(&fun, &ffi_type_pointer, J);
