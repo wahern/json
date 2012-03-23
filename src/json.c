@@ -229,7 +229,7 @@ struct token {
 }; /* struct token */
 
 
-static const char *lex_strtype(enum tokens type) {
+NOTUSED static const char *lex_strtype(enum tokens type) {
 	static const char *name[] = {
 		[T_BEGIN_ARRAY] = "begin-array",
 		[T_END_ARRAY] = "end-array",
@@ -2168,28 +2168,71 @@ error:
 } /* path_next() */
 
 
+static struct json_value *path_exec(struct json *J, struct json_path *path, int mode, int *error) {
+	struct json_value *V = J->root;
+
+	*error = 0;
+
+	while (V && path_next(path, error)) {
+		if (path->type == JSON_V_OBJECT)
+			V = json_v_search(J, V, mode, path->key, path->len);
+		else
+			V = json_v_index(J, V, mode, path->index);
+	}
+
+	if (*error)
+		return json_throw(J, *error), (void *)0;
+
+	return V;
+} /* path_exec() */
+
+
 int json_type(struct json *J, const char *fmt, ...) {
 	struct json_path path;
-	struct json_value *V = J->root;
-	int mode, error;
-
-	mode = JSON_M_CREATE|JSON_M_CONVERT;
+	struct json_value *V;
+	int error = 0;
 
 	path_init(&path, fmt);
 
-	while (path_next(&path, &error)) {
-		if (path.type == JSON_V_OBJECT)
-			V = json_v_search(J, V, mode, path.key, path.len);
-		else
-			V = json_v_index(J, V, mode, path.index);
-	}
+	if ((V = path_exec(J, &path, JSON_M_CREATE|JSON_M_CONVERT, &error)))
+		return V->type;
+	else if (error)
+		json_throw(J, error);
 
-	if (error)
-		return json_throw(J, error), 0;
-
-	return V->type;
+	return 0;
 } /* json_type() */
 
+
+double json_number(struct json *J, const char *fmt, ...) {
+	struct json_path path;
+	struct json_value *V;
+	int error = 0;
+
+	path_init(&path, fmt);
+
+	if ((V = path_exec(J, &path, JSON_M_CREATE|JSON_M_CONVERT, &error)))
+		return json_v_number(J, V);
+	else if (error)
+		json_throw(J, error);
+
+	return 0.0;
+} /* json_number() */
+
+
+const char *json_string(struct json *J, const char *fmt, ...) {
+	struct json_path path;
+	struct json_value *V;
+	int error = 0;
+
+	path_init(&path, fmt);
+
+	if ((V = path_exec(J, &path, JSON_M_CREATE|JSON_M_CONVERT, &error)))
+		return json_v_string(J, V);
+	else if (error)
+		json_throw(J, error);
+
+	return "";
+} /* json_string() */
 
 
 #include <stdio.h>
@@ -2207,6 +2250,12 @@ struct call {
 	void *fun;
 
 	ffi_type *rtype;
+
+	union {
+		double d;
+		int i;
+		char *p;
+	} rval;
 
 	int argc;
 
@@ -2245,57 +2294,58 @@ static void call_push(struct call *call, ffi_type *type, ...) {
 } /* call_push() */
 
 
-static void call_xpush(struct call *call, const char *arg) {
-	const char *cp = arg;
-	int s = 1, i = 0;
+static void call_path(struct call *call, int *argc, char ***argv) {
+	struct json_path path;
+	int ch;
 
-	if (*cp == '-') {
-		s = -1;
-		cp++;
-	}
+	if (argc) {
+		path.fmt = path.fp = **argv;
+		--*argc;
+		++*argv;
+	} else
+		path.fmt = path.fp = "";
 
-	while (*cp) {
-		if (!isdigit(*cp)) {
-			call_push(call, &ffi_type_pointer, arg);
+	call_push(call, &ffi_type_pointer, path.fmt);
 
-			return;
-		}
+	while ((ch = path_popc(&path))) {
+		switch (ch) {
+		case -'#':
+			if (!*argc)
+				errx(1, "fewer arguments than format specifiers");
 
-		i *= 10;
-		i += *cp - '0';
+			call_push(call, &ffi_type_sint, atoi(**argv));
+			--*argc;
+			++*argv;
 
-		cp++;
-	}
+			break;
+		case -'$':
+			if (!*argc)
+				errx(1, "fewer arguments than format specifiers");
 
-	call_push(call, &ffi_type_sint, s * i);
-} /* call_xpush() */
+			call_push(call, &ffi_type_pointer, **argv);
+			--*argc;
+			++*argv;
 
-
-static void call_path(struct call *call, int argc, char *argv[]) {
-	int i;
-
-	call_push(call, &ffi_type_pointer, (argc)? argv[0] : "");
-
-	for (i = 1; i < argc; i++)
-		call_xpush(call, argv[i]);
+			break;
+		default:
+			break;
+		} /* switch() */
+	} /* while() */
 } /* call_path() */
 
 
-static ffi_arg call_exec(struct call *fun) {
+static void call_exec(struct call *fun) {
 	void *arg[countof(fun->arg)];
 	ffi_cif cif;
-	ffi_arg ret;
 	int i;
 
 	for (i = 0; i < (int)countof(arg); i++)
 		arg[i] = &fun->arg[i];
 
 	if (FFI_OK != ffi_prep_cif(&cif, FFI_DEFAULT_ABI, fun->argc, fun->rtype, fun->type))
-		return 0;
+		errx(1, "FFI call failed");
 
-	ffi_call(&cif, FFI_FN(fun->fun), &ret, arg);
-
-	return ret;
+	ffi_call(&cif, FFI_FN(fun->fun), &fun->rval, arg);
 } /* call_exec() */
 
 
@@ -2305,7 +2355,6 @@ int main(int argc, char **argv) {
 	int flags = 0, opt, error;
 	const char *cmd;
 	struct call fun;
-	ffi_arg ret;
 
 	while (-1 != (opt = getopt(argc, argv, "p"))) {
 		switch (opt) {
@@ -2332,17 +2381,38 @@ int main(int argc, char **argv) {
 	if ((error = json_loadfile(J, stdin)))
 		errx(1, "stdin: %s", json_strerror(error));
 
-	if (!strcmp(cmd, "print")) {
-		if ((error = json_printfile(J, stdout, flags)))
-			errx(1, "stdout: %s", json_strerror(error));
-	} else if (!strcmp(cmd, "type")) {
-		call_init(&fun, &ffi_type_sint, (void *)&json_type);
-		call_push(&fun, &ffi_type_pointer, J);
-		call_path(&fun, argc, argv);
-		ret = call_exec(&fun);
-		puts(value_strtype((int)ret));
-	} else
-		errx(1, "%s: invalid command", cmd);
+	do {
+		if (!strcmp(cmd, "print")) {
+			if ((error = json_printfile(J, stdout, flags)))
+				errx(1, "stdout: %s", json_strerror(error));
+		} else if (!strcmp(cmd, "type")) {
+			call_init(&fun, &ffi_type_sint, (void *)&json_type);
+			call_push(&fun, &ffi_type_pointer, J);
+			call_path(&fun, &argc, &argv);
+			call_exec(&fun);
+			puts(value_strtype(fun.rval.i));
+		} else if (!strcmp(cmd, "number")) {
+			call_init(&fun, &ffi_type_double, (void *)&json_number);
+			call_push(&fun, &ffi_type_pointer, J);
+			call_path(&fun, &argc, &argv);
+			call_exec(&fun);
+			printf("%f\n", fun.rval.d);
+		} else if (!strcmp(cmd, "string")) {
+			call_init(&fun, &ffi_type_pointer, (void *)&json_string);
+			call_push(&fun, &ffi_type_pointer, J);
+			call_path(&fun, &argc, &argv);
+			call_exec(&fun);
+			printf("%s\n", fun.rval.p);
+		} else
+			errx(1, "%s: invalid command", cmd);
+
+		if (argc) {
+			cmd = *argv;
+			argc--;
+			argv++;
+		} else
+			cmd = NULL;
+	} while (cmd);
 
 	json_close(J);
 
