@@ -2196,12 +2196,116 @@ int json_type(struct json *J, const char *fmt, ...) {
 #include <unistd.h>
 #include <err.h>
 
+#if __linux
+#include <ffi.h>
+#else
+#include <ffi/ffi.h>
+#endif
+
+
+struct call {
+	void *fun;
+
+	ffi_type *rtype;
+
+	int argc;
+
+	union {
+		int i;
+		char *p;
+	} arg[16];
+
+	ffi_type *type[16];
+}; /* struct call */
+
+
+static void call_init(struct call *call, ffi_type *rtype, void *fun) {
+	call->fun = fun;
+	call->rtype = rtype;
+	call->argc = 0;
+} /* call_init() */
+
+
+static void call_push(struct call *call, ffi_type *type, ...) {
+	va_list ap;
+
+	if (call->argc >= (int)countof(call->arg))
+		return;
+
+	va_start(ap, type);
+
+	if (type == &ffi_type_pointer)
+		call->arg[call->argc].p = va_arg(ap, void *);
+	else
+		call->arg[call->argc].i = va_arg(ap, int);
+
+	call->type[call->argc++] = type;
+
+	va_end(ap);
+} /* call_push() */
+
+
+static void call_xpush(struct call *call, const char *arg) {
+	const char *cp = arg;
+	int s = 1, i = 0;
+
+	if (*cp == '-') {
+		s = -1;
+		cp++;
+	}
+
+	while (*cp) {
+		if (!isdigit(*cp)) {
+			call_push(call, &ffi_type_pointer, arg);
+
+			return;
+		}
+
+		i *= 10;
+		i += *cp - '0';
+
+		cp++;
+	}
+
+	call_push(call, &ffi_type_sint, s * i);
+} /* call_xpush() */
+
+
+static void call_path(struct call *call, int argc, char *argv[]) {
+	int i;
+
+	call_push(call, &ffi_type_pointer, (argc)? argv[0] : "");
+
+	for (i = 1; i < argc; i++)
+		call_xpush(call, argv[i]);
+} /* call_path() */
+
+
+static ffi_arg call_exec(struct call *fun) {
+	void *arg[countof(fun->arg)];
+	ffi_cif cif;
+	ffi_arg ret;
+	int i;
+
+	for (i = 0; i < (int)countof(arg); i++)
+		arg[i] = &fun->arg[i];
+
+	if (FFI_OK != ffi_prep_cif(&cif, FFI_DEFAULT_ABI, fun->argc, fun->rtype, fun->type))
+		return 0;
+
+	ffi_call(&cif, FFI_FN(fun->fun), &ret, arg);
+
+	return ret;
+} /* call_exec() */
+
 
 int main(int argc, char **argv) {
 	extern int optind;
 	struct json *J;
 	int flags = 0, opt, error;
 	const char *cmd;
+	struct call fun;
+	ffi_arg ret;
 
 	while (-1 != (opt = getopt(argc, argv, "p"))) {
 		switch (opt) {
@@ -2232,9 +2336,11 @@ int main(int argc, char **argv) {
 		if ((error = json_printfile(J, stdout, flags)))
 			errx(1, "stdout: %s", json_strerror(error));
 	} else if (!strcmp(cmd, "type")) {
-		int type = json_type(J, (*argv)? *argv : "", argv[1], argv[2]);
-
-		puts(value_strtype(type));
+		call_init(&fun, &ffi_type_sint, (void *)&json_type);
+		call_push(&fun, &ffi_type_pointer, J);
+		call_path(&fun, argc, argv);
+		ret = call_exec(&fun);
+		puts(value_strtype((int)ret));
 	} else
 		errx(1, "%s: invalid command", cmd);
 
