@@ -1,5 +1,6 @@
 CC = $(shell env PATH="/usr/local/gcc46/bin:$${PATH}" command -v gcc)
-CFLAGS = -std=gnu99 -Wall -Wextra -O3
+CPPFLAGS=-D_GNU_SOURCE -D_BSD_SOURCE -D_DARWIN_C_SOURCE
+CFLAGS = -std=c1x -Wall -Wextra -O0 -g
 
 all: json
 
