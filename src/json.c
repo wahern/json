@@ -979,6 +979,7 @@ static _Bool value_isvalue(struct json_value *V) {
 
 static int value_convert(struct json_value *V, enum json_values type) {
 	struct orphans indices, keys;
+	struct json_value *R;
 	struct node *N;
 	int error;
 
@@ -988,6 +989,7 @@ static int value_convert(struct json_value *V, enum json_values type) {
 	if (value_iskey(V))
 		return JSON_EASSERT;
 
+	R = V->root;
 	N = V->node;
 
 	CIRCLEQ_INIT(&indices);
@@ -999,6 +1001,7 @@ static int value_convert(struct json_value *V, enum json_values type) {
 	error = value_init(V, type, NULL);
 
 	V->node = N;
+	V->root = R;
 
 	return error;
 } /* value_convert() */
