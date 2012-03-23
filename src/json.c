@@ -28,6 +28,8 @@
 #define MIN(a, b) (((a) < (b))? (a) : (b))
 #define CMP(a, b) (((a) < (b))? -1 : ((a) > (b))? 1 : 0)
 
+#define countof(a) (sizeof (a) / sizeof *(a))
+#define endof(a) (&(a)[countof(a)])
 
 #define SAY_(file, func, line, fmt, ...) \
 	fprintf(stderr, "%s:%d: " fmt "%s", __func__, __LINE__, __VA_ARGS__)
@@ -73,30 +75,20 @@ static void *make0(size_t size, int *error) {
 } /* make0() */
 
 
-enum json_errors {
-	JSON_EASSERT = -10,
-	JSON_ELEXICAL,
-	JSON_ESYNTAX,
-	JSON_ETRUNCATED,
-	JSON_ENOMORE,
-	JSON_ETYPING,
-}; /* enum json_errors */
-
-
 const char *json_strerror(int error) {
 	static const char *descr[] = {
-		[JSON_EASSERT-JSON_EASSERT] = "JSON assertion",
-		[JSON_ELEXICAL-JSON_EASSERT] = "JSON lexical error",
-		[JSON_ESYNTAX-JSON_EASSERT] = "JSON syntax error",
-		[JSON_ETRUNCATED-JSON_EASSERT] = "JSON truncated input",
-		[JSON_ENOMORE-JSON_EASSERT] = "JSON no more input needed",
-		[JSON_ETYPING-JSON_EASSERT] = "JSON illegal operation on type",
+		[JSON_EASSERT-JSON_EBASE] = "JSON assertion",
+		[JSON_ELEXICAL-JSON_EBASE] = "JSON lexical error",
+		[JSON_ESYNTAX-JSON_EBASE] = "JSON syntax error",
+		[JSON_ETRUNCATED-JSON_EBASE] = "JSON truncated input",
+		[JSON_ENOMORE-JSON_EBASE] = "JSON no more input needed",
+		[JSON_ETYPING-JSON_EBASE] = "JSON illegal operation on type",
 	};
 
-	if (error >= 0)
+	if (error >= JSON_EBASE && error < JSON_ELAST)
+		return descr[error - JSON_EBASE];
+	else
 		return strerror(error);
-
-	return descr[error - JSON_EASSERT];
 } /* json_strerror() */
 
 
@@ -317,10 +309,8 @@ static int lex_push(struct lexer *L, enum tokens type, ...) {
 	va_list ap;
 	int error;
 
-	if (!(T = make(sizeof *T, &error)))
+	if (!(T = make0(sizeof *T, &error)))
 		return error;
-
-	memset(T, 0, sizeof *T);
 
 	T->type = type;
 
@@ -1889,7 +1879,7 @@ struct json_value *json_v_search(struct json *J, struct json_value *O, int mode,
 	if (!(K = value_open(JSON_V_STRING, NULL, &error)))
 		goto error;
 
-	if (!(error = string_cats(&K->string, name, len)))
+	if ((error = string_cats(&K->string, name, len)))
 		goto error;
 
 	if (!(V = value_open(JSON_V_NULL, NULL, &error)))
@@ -2004,18 +1994,201 @@ _Bool json_v_boolean(struct json *J, struct json_value *V) {
 } /* json_v_boolean() */
 
 
+/*
+ * J S O N  P A T H  R O U T I N E S
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+struct json_path {
+	int type, index;
+	char key[256], *kp;
+	size_t len;
+	const char *fmt, *fp;
+	va_list ap;
+}; /* struct json_path */
 
 
-#if 0
-struct path {
-	int foo;
-}; /* struct path */
+#define path_init(path, fmt) do { \
+	(path)->fmt = (fmt); \
+	(path)->fp = (fmt); \
+	va_start((path)->ap, fmt); \
+} while(0)
 
 
-static int path_parse(const char *path, ...) {
-	const char *p = path;
-} /* path_parse() */
-#endif
+static unsigned path_getc(struct json_path *path) {
+	return (*path->fp)? *path->fp++ : 0;
+} /* path_getc() */
+
+
+static int path_popc(struct json_path *path) {
+	int ch;
+
+	switch ((ch = path_getc(path))) {
+	case '\\':
+		return path_getc(path);
+	case '[':
+	case ']':
+	case '.':
+	case '#':
+	case '$':
+		return -ch;
+	default:
+		return ch;
+	} /* switch() */
+} /* path_popc() */
+
+
+static void path_unget(struct json_path *path) {
+	/* NOTE: should never be putting back an escaped character. */
+	--path->fp;
+} /* path_unget() */
+
+
+static int key_putc(struct json_path *path, int ch) {
+	if (path->kp < endof(path->key) - 1) {
+		*path->kp++ = ch;
+
+		return 0;
+	} else
+		return JSON_ESYNTAX;
+} /* key_putc() */
+
+
+static int key_puts(struct json_path *path, const char *str) {
+	size_t len, lim;
+	
+	lim = endof(path->key) - path->kp;
+	len = strlcpy(path->kp, str, lim);
+
+	if (len >= lim)
+		return JSON_ESYNTAX;
+
+	path->kp += len;
+
+	return 0;
+} /* key_puts() */
+
+
+static _Bool path_next(struct json_path *path, int *error) {
+	int ch, sign, index, len;
+	const char *str;
+
+	*error = 0;
+
+	path->type = 0;
+	path->kp = path->key;
+
+	if (!(ch = path_popc(path))) {
+		return 0;
+	} else if (ch == -'[')
+		goto array;
+
+	if (ch == -'.')
+		ch = path_popc(path);
+
+	do {
+		switch (ch) {
+		case -'#':
+			index = va_arg(path->ap, int);
+
+			len = snprintf(path->kp, endof(path->key) - path->kp, "%d", index);
+
+			if (len >= endof(path->key) - path->kp) {
+				*error = JSON_ESYNTAX;
+
+				goto error;
+			} else if (len < 0)
+				goto syerr;
+
+			path->kp += len;
+
+			break;
+		case -'$':
+			str = va_arg(path->ap, char *);
+
+			if ((*error = key_puts(path, str)))
+				goto error;
+
+			break;
+		default:
+			if ((*error = key_putc(path, ch)))
+				goto error;
+
+			break;
+		}
+	} while ((ch = path_popc(path)) && ch != -'.' && ch != -'[');
+
+	if (ch)	
+		path_unget(path);
+
+	path->type = JSON_V_OBJECT;
+	*path->kp = '\0';
+	path->len = path->kp - path->key;
+
+	return 1;
+array:
+	sign = 1;
+	index = 0;
+
+	ch = path_popc(path);
+
+	if (ch == -'#') {
+		index = va_arg(path->ap, int);
+
+		ch = path_popc(path);
+	} else if (ch == '-') {
+		sign = -1;
+		goto index;
+	} else if (isdigit(ch)) {
+index:
+		do {
+			index *= 10;
+			index += ch - '0';
+		} while ((ch = path_popc(path)) > 0 && isdigit(ch));
+	} else {
+		*error = JSON_ESYNTAX;
+
+		goto error;
+	}
+
+	if (ch != -']') {
+		*error = JSON_ESYNTAX;
+
+		goto error;
+	}
+
+	path->type = JSON_V_ARRAY;
+	path->index = sign * index;
+
+	return 1;
+syerr:
+	*error = errno;
+error:
+	return 0;
+} /* path_next() */
+
+
+int json_type(struct json *J, const char *fmt, ...) {
+	struct json_path path;
+	struct json_value *V = J->root;
+	int mode, error;
+
+	mode = JSON_M_CREATE|JSON_M_CONVERT;
+
+	path_init(&path, fmt);
+
+	while (path_next(&path, &error)) {
+		if (path.type == JSON_V_OBJECT)
+			V = json_v_search(J, V, mode, path.key, path.len);
+		else
+			V = json_v_index(J, V, mode, path.index);
+	}
+
+	if (error)
+		return json_throw(J, error), 0;
+
+	return V->type;
+} /* json_type() */
 
 
 
@@ -2024,9 +2197,11 @@ static int path_parse(const char *path, ...) {
 #include <err.h>
 
 
-int main(int argc, char *argv[]) {
+int main(int argc, char **argv) {
+	extern int optind;
 	struct json *J;
 	int flags = 0, opt, error;
+	const char *cmd;
 
 	while (-1 != (opt = getopt(argc, argv, "p"))) {
 		switch (opt) {
@@ -2037,13 +2212,31 @@ int main(int argc, char *argv[]) {
 		} /* switch() */
 	} /* switch() */
 
+	argc -= optind;
+	argv += optind;
+
+	if (argc) {
+		cmd = *argv;
+		argc--;
+		argv++;
+	} else {
+		cmd = "print";
+	}
+
 	J = json_open(0, &error);
 
 	if ((error = json_loadfile(J, stdin)))
 		errx(1, "stdin: %s", json_strerror(error));
 
-	if ((error = json_printfile(J, stdout, flags)))
-		errx(1, "stdout: %s", json_strerror(error));
+	if (!strcmp(cmd, "print")) {
+		if ((error = json_printfile(J, stdout, flags)))
+			errx(1, "stdout: %s", json_strerror(error));
+	} else if (!strcmp(cmd, "type")) {
+		int type = json_type(J, (*argv)? *argv : "", argv[1], argv[2]);
+
+		puts(value_strtype(type));
+	} else
+		errx(1, "%s: invalid command", cmd);
 
 	json_close(J);
 

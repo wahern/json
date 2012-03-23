@@ -11,9 +11,10 @@
  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-#define JSON_F_PRETTY 1
-#define JSON_F_TRACE  2
-#define JSON_F_STRONG 4
+#define JSON_F_PRETTY  1
+#define JSON_F_TRACE   2
+#define JSON_F_STRONG  4
+#define JSON_F_AUTOVIV 8
 
 struct json;
 
@@ -44,11 +45,10 @@ int json_getc(struct json *, int, int *);
 int json_printfile(struct json *, FILE *, int);
 
 
-#if 0
-int json_push(struct json *, int, const char *path);
-
-struct json_value *json_root(struct json *, struct json_value *);
-#endif
+/*
+ * J S O N  V A L U E  I N T E R F A C E S
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 #define JSON_M_CREATE  0x01
 #define JSON_M_CONVERT 0x02
@@ -72,11 +72,34 @@ _Bool json_v_boolean(struct json *, struct json_value *);
 void json_v_setstring(struct json *, struct json_value *, const void *, size_t);
 
 
+/*
+ * J S O N  P A T H  I N T E R F A C E S
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+int json_type(struct json *, const char *, ...);
+
+//int json_push(struct json *, int, const char *path, ...);
+//struct json_value *json_root(struct json *, struct json_value *);
+
 
 /*
  * J S O N  E R R O R  I N T E R F A C E S
  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+#define JSON_EBASE -(('J' << 24) | ('S' << 16) | ('O' << 8) | 'N')
+
+enum json_errors {
+	JSON_EASSERT = JSON_EBASE,
+	JSON_ELEXICAL,
+	JSON_ESYNTAX,
+	JSON_ETRUNCATED,
+	JSON_ENOMORE,
+	JSON_ETYPING,
+	JSON_ELAST
+}; /* enum json_errors */
+
 
 struct jsonxs {
 	jmp_buf trap, *otrap;
@@ -93,6 +116,9 @@ jmp_buf *json_setjmp(struct json *, jmp_buf *);
 	json_setjmp((J), (xs)->otrap)
 
 int json_throw(struct json *, int);
+
+
+const char *json_strerror(int);
 
 
 #endif /* JSON_H */
