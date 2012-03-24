@@ -889,10 +889,25 @@ static void object_clear(struct json_value *V, struct orphans *keys) {
 
 
 static void value_clear(struct json_value *V, struct orphans *indices, struct orphans *keys) {
-	if (V->type == JSON_V_ARRAY)
+	switch (V->type) {
+	case JSON_V_ARRAY:
 		array_clear(V, indices);
-	else if (V->type == JSON_V_OBJECT)
+		break;
+	case JSON_V_OBJECT:
 		object_clear(V, keys);
+		break;
+	case JSON_V_STRING:
+		string_reset(&V->string);
+		break;
+	case JSON_V_BOOLEAN:
+		V->boolean = 0;
+		break;
+	case JSON_V_NUMBER:
+		V->number = 0.0;
+		break;
+	default:
+		break;
+	} /* switch() */
 } /* value_clear() */
 
 
@@ -1005,6 +1020,53 @@ static int value_convert(struct json_value *V, enum json_values type) {
 
 	return error;
 } /* value_convert() */
+
+
+static double value_number(struct json_value *V) {
+	return (V && V->type == JSON_V_NUMBER)? V->number : 0.0;
+} /* value_number() */
+
+
+static const char *value_string(struct json_value *V) {
+	return (V && V->type == JSON_V_STRING)? V->string->text : "";
+} /* value_string() */
+
+
+static double value_length(struct json_value *V) {
+	return (V && V->type == JSON_V_STRING)? V->string->length : 0;
+} /* value_length() */
+
+
+static double value_count(struct json_value *V) {
+	switch ((V)? V->type : JSON_V_NULL) {
+	case JSON_V_ARRAY:
+		return V->array.count;
+	case JSON_V_OBJECT:
+		return V->object.count;
+	default:
+		return 0;
+	}
+} /* value_count() */
+
+
+static _Bool value_boolean(struct json_value *V) {
+	if (!V)
+		return 0;
+
+	if (V->type == JSON_V_BOOLEAN)
+		return V->boolean;
+
+	switch (V->type) {
+	case JSON_V_NUMBER:
+		return isnormal(V->number);
+	case JSON_V_ARRAY:
+		return !!V->array.count;
+	case JSON_V_OBJECT:
+		return !!V->object.count;
+	default:
+		return 0;
+	} /* switch() */
+} /* value_boolean() */
 
 
 #if 0
@@ -1679,6 +1741,11 @@ int json_throw(struct json *J, int error) {
 } /* json_throw() */
 
 
+int json_ifthrow(struct json *J, int error) {
+	return (error)? json_throw(J, error) : 0;
+} /* json_ifthrow() */
+
+
 static int json_parse_(struct json *J, const void *src, size_t len) {
 	int error;
 
@@ -1872,20 +1939,22 @@ struct json_value *json_root(struct json *J) {
 } /* json_root() */
 
 
-struct json_value *json_v_search(struct json *J, struct json_value *O, int mode, const void *name, size_t len) {
-	struct json_value *K = NULL , *V = NULL;
+static int json_v_search_(struct json_value **V, struct json *J, struct json_value *O, int mode, const void *name, size_t len) {
+	struct json_value *K = NULL;
 	int error;
+
+	*V = NULL;
 
 	if (O->type != JSON_V_OBJECT) {
 		if (!(mode & JSON_M_CREATE) || !(mode & JSON_M_CONVERT))
-			return NULL;
+			return 0;
 
 		if ((error = value_convert(O, JSON_V_OBJECT)))
 			goto error;
 	}
 
-	if ((V = object_search(O, name, len)) || !(mode & JSON_M_CREATE))
-		return V;
+	if ((*V = object_search(O, name, len)) || !(mode & JSON_M_CREATE))
+		return 0;
 
 	if (!(K = value_open(JSON_V_STRING, NULL, &error)))
 		goto error;
@@ -1893,116 +1962,184 @@ struct json_value *json_v_search(struct json *J, struct json_value *O, int mode,
 	if ((error = string_cats(&K->string, name, len)))
 		goto error;
 
-	if (!(V = value_open(JSON_V_NULL, NULL, &error)))
+	if (!(*V = value_open(JSON_V_NULL, NULL, &error)))
 		goto error;
 
-	if ((error = object_insert(O, K, V)))
+	if ((error = object_insert(O, K, *V)))
 		goto error;
 
-	return V;
+	return 0;
 error:
 	value_close(K, 0);
-	value_close(V, 0);
+	value_close(*V, 0);
+	*V = NULL;
 
-	json_throw(J, error);
+	return json_throw(J, error);
+} /* json_v_search_() */
 
-	return NULL;
+
+struct json_value *json_v_search(struct json *J, struct json_value *O, int mode, const void *name, size_t len) {
+	struct json_value *V;
+	int error;
+
+	if ((error = json_v_search_(&V, J, O, mode, name, len)))
+		json_throw(J, error);
+
+	return V;
 } /* json_v_search() */
 
 
-struct json_value *json_v_index(struct json *J, struct json_value *A, int mode, int index) {
-	struct json_value *V = NULL;
+static int json_v_index_(struct json_value **V, struct json *J, struct json_value *A, int mode, int index) {
 	int error;
+
+	*V = NULL;
 
 	if (A->type != JSON_V_ARRAY) {
 		if (!(mode & JSON_M_CREATE) || !(mode & JSON_M_CONVERT))
-			return NULL;
+			return 0;
 
 		if ((error = value_convert(A, JSON_V_ARRAY)))
 			goto error;
 	}
 
-	if ((V = array_index(A, index)) || !(mode & JSON_M_CREATE))
-		return V;
+	if ((*V = array_index(A, index)) || !(mode & JSON_M_CREATE))
+		return 0;
 
-	if (!(V = value_open(JSON_V_NULL, NULL, &error)))
+	if (!(*V = value_open(JSON_V_NULL, NULL, &error)))
 		goto error;
 
-	if ((error = array_insert(A, index, V)))
+	if ((error = array_insert(A, index, *V)))
 		goto error;
+
+	return 0;
+error:
+	value_close(*V, 0);
+	*V = NULL;
+
+	return json_throw(J, error);
+} /* json_v_index_() */
+
+
+struct json_value *json_v_index(struct json *J, struct json_value *O, int mode, int index) {
+	struct json_value *V;
+	int error;
+
+	if ((error = json_v_index_(&V, J, O, mode, index)))
+		json_throw(J, error);
 
 	return V;
-error:
-	value_close(V, 0);
-
-	json_throw(J, error);
-
-	return NULL;
-} /* json_v_index() */
+} /* json_v_index_() */
 
 
-void json_v_delete(struct json *J NOTUSED, struct json_value *V) {
+int json_v_delete(struct json *J NOTUSED, struct json_value *V) {
 	value_close(V, 1);
+
+	return 0;
 } /* json_v_delete() */
 
 
+int json_v_clear(struct json *J NOTUSED, struct json_value *V) {
+	struct orphans indices, keys;
+
+	CIRCLEQ_INIT(&indices);
+	CIRCLEQ_INIT(&keys);
+
+	value_clear(V, &indices, &keys);
+	orphans_free(&indices, &keys);
+
+	return 0;
+} /* json_v_clear() */
+
+
 double json_v_number(struct json *J, struct json_value *V) {
-	if (V->type == JSON_V_NUMBER)
-		return V->number;
-	else
-		return json_throw(J, JSON_ETYPING), 0.0;
+	if (V && V->type != JSON_V_NUMBER && (J->flags & JSON_F_STRONG))
+		json_throw(J, JSON_ETYPING);
+
+	return value_number(V);
 } /* json_v_number() */
 
 
 const char *json_v_string(struct json *J, struct json_value *V) {
-	if (V->type == JSON_V_STRING)
-		return V->string->text;
-	else
-		return json_throw(J, JSON_ETYPING), "";
+	if (V && V->type != JSON_V_STRING && (J->flags & JSON_F_STRONG))
+		json_throw(J, JSON_ETYPING);
+
+	return value_string(V);
 } /* json_v_string() */
 
 
 size_t json_v_length(struct json *J, struct json_value *V) {
-	if (V->type == JSON_V_STRING)
-		return V->string->length;
-	else
-		return json_throw(J, JSON_ETYPING), 0;
+	if (V && V->type != JSON_V_STRING && (J->flags & JSON_F_STRONG))
+		json_throw(J, JSON_ETYPING);
+
+	return value_length(V);
 } /* json_v_length() */
 
 
 size_t json_v_count(struct json *J, struct json_value *V) {
-	switch (V->type) {
-	case JSON_V_ARRAY:
-		return V->array.count;
-	case JSON_V_OBJECT:
-		return V->object.count;
-	default:
-		if (J->flags & JSON_F_STRONG)
-			json_throw(J, JSON_ETYPING);
+	if (V && V->type != JSON_V_ARRAY && V->type != JSON_V_OBJECT && (J->flags & JSON_F_STRONG))
+		json_throw(J, JSON_ETYPING);
 
-		return 0;
-	}
+	return value_count(V);
 } /* json_v_count() */
 
 
 _Bool json_v_boolean(struct json *J, struct json_value *V) {
-	if (V->type == JSON_V_BOOLEAN)
-		return V->boolean;
+	if (V && V->type != JSON_V_BOOLEAN && (J->flags & JSON_F_STRONG))
+		json_throw(J, JSON_ETYPING);
 
-	if (J->flags & JSON_F_STRONG)
-		return json_throw(J, JSON_ETYPING), 0;
-
-	switch (V->type) {
-	case JSON_V_NUMBER:
-		return isnormal(V->number);
-	case JSON_V_ARRAY:
-		return !!V->array.count;
-	case JSON_V_OBJECT:
-		return !!V->object.count;
-	default:
-		return 0;
-	}
+	return value_boolean(V);
 } /* json_v_boolean() */
+
+
+int json_v_setnumber(struct json *J, struct json_value *V, double number) {
+	int error;
+
+	if ((error = value_convert(V, JSON_V_NUMBER)))
+		return json_throw(J, error);
+
+	V->number = number;
+
+	return 0;
+} /* json_v_setnumber() */
+
+
+int json_v_setstring(struct json *J, struct json_value *V, const void *sp, size_t len) {
+	int error;
+
+	if ((error = value_convert(V, JSON_V_STRING)))
+		return json_throw(J, error);
+
+	string_reset(&V->string);
+
+	return json_ifthrow(J, string_cats(&V->string, sp, len));
+} /* json_v_setstring() */
+
+
+int json_v_setboolean(struct json *J, struct json_value *V, _Bool boolean) {
+	int error;
+
+	if ((error = value_convert(V, JSON_V_BOOLEAN)))
+		return json_throw(J, error);
+
+	V->boolean = boolean;
+
+	return 0;
+} /* json_v_setboolean() */
+
+
+int json_v_setnull(struct json *J, struct json_value *V) {
+	return json_ifthrow(J, value_convert(V, JSON_V_NULL));
+} /* json_v_setnull() */
+
+
+int json_v_setarray(struct json *J, struct json_value *V) {
+	return json_ifthrow(J, value_convert(V, JSON_V_ARRAY));
+} /* json_v_setarray() */
+
+
+int json_v_setobject(struct json *J, struct json_value *V) {
+	return json_ifthrow(J, value_convert(V, JSON_V_OBJECT));
+} /* json_v_setobject() */
 
 
 /*
@@ -2016,6 +2153,7 @@ struct json_path {
 	size_t len;
 	const char *fmt, *fp;
 	va_list ap;
+	struct json_value *value;
 }; /* struct json_path */
 
 
@@ -2084,8 +2222,6 @@ static _Bool path_next(struct json_path *path, int *error) {
 	int ch, sign, index, len;
 	const char *str;
 
-	*error = 0;
-
 	path->type = 0;
 	path->kp = path->key;
 
@@ -2097,7 +2233,7 @@ static _Bool path_next(struct json_path *path, int *error) {
 	if (ch == -'.')
 		ch = path_popc(path);
 
-	do {
+	while (ch && ch != -'.' && ch != -'[') {
 		switch (ch) {
 		case -'#':
 			index = va_arg(path->ap, int);
@@ -2127,7 +2263,9 @@ static _Bool path_next(struct json_path *path, int *error) {
 
 			break;
 		}
-	} while ((ch = path_popc(path)) && ch != -'.' && ch != -'[');
+
+		ch = path_popc(path);
+	}
 
 	if (ch)	
 		path_unget(path);
@@ -2136,7 +2274,7 @@ static _Bool path_next(struct json_path *path, int *error) {
 	*path->kp = '\0';
 	path->len = path->kp - path->key;
 
-	return 1;
+	return !!path->len;
 array:
 	sign = 1;
 	index = 0;
@@ -2179,85 +2317,113 @@ error:
 } /* path_next() */
 
 
-static struct json_value *path_exec(struct json *J, struct json_path *path, int mode, int *error) {
-	struct json_value *V = J->root;
+static int path_exec(struct json *J, struct json_path *path, int mode) {
+	int error = 0;
 
-	*error = 0;
+	path->value = J->root;
 
-	while (V && path_next(path, error)) {
+	while (path->value && path_next(path, &error)) {
 		if (path->type == JSON_V_OBJECT)
-			V = json_v_search(J, V, mode, path->key, path->len);
+			error = json_v_search_(&path->value, J, path->value, mode, path->key, path->len);
 		else
-			V = json_v_index(J, V, mode, path->index);
+			error = json_v_index_(&path->value, J, path->value, mode, path->index);
 	}
 
-	if (*error)
-		return json_throw(J, *error), (void *)0;
-
-	return V;
+	return error;
 } /* path_exec() */
 
 
 void json_delete(struct json *J, const char *fmt, ...) {
 	struct json_path path;
-	struct json_value *V;
-	int error = 0;
+	int error;
 
 	path_init(&path, fmt);
 
-	if ((V = path_exec(J, &path, 0, &error)))
-		json_v_delete(J, V);
-	else if (error)
+	if ((error = path_exec(J, &path, 0)))
 		json_throw(J, error);
+	else if (path.value)
+		json_v_delete(J, path.value);
 } /* json_delete() */
 
 
 int json_type(struct json *J, const char *fmt, ...) {
 	struct json_path path;
-	struct json_value *V;
-	int error = 0;
+	int error;
 
 	path_init(&path, fmt);
 
-	if ((V = path_exec(J, &path, JSON_M_CREATE|JSON_M_CONVERT, &error)))
-		return V->type;
-	else if (error)
+	if ((error = path_exec(J, &path, 0)))
 		json_throw(J, error);
 
-	return 0;
+	return (path.value)? path.value->type : JSON_V_NULL;
 } /* json_type() */
 
 
 double json_number(struct json *J, const char *fmt, ...) {
 	struct json_path path;
-	struct json_value *V;
-	int error = 0;
+	int error;
 
 	path_init(&path, fmt);
 
-	if ((V = path_exec(J, &path, JSON_M_CREATE|JSON_M_CONVERT, &error)))
-		return json_v_number(J, V);
-	else if (error)
+	if ((error = path_exec(J, &path, 0)))
 		json_throw(J, error);
 
-	return 0.0;
+	return json_v_number(J, path.value);
 } /* json_number() */
 
 
 const char *json_string(struct json *J, const char *fmt, ...) {
 	struct json_path path;
-	struct json_value *V;
-	int error = 0;
+	int error;
 
 	path_init(&path, fmt);
 
-	if ((V = path_exec(J, &path, JSON_M_CREATE|JSON_M_CONVERT, &error)))
-		return json_v_string(J, V);
-	else if (error)
+	if ((error = path_exec(J, &path, 0)))
 		json_throw(J, error);
 
-	return "";
+	return json_v_string(J, path.value);
 } /* json_string() */
+
+
+size_t json_length(struct json *J, const char *fmt, ...) {
+	struct json_path path;
+	int error;
+
+	path_init(&path, fmt);
+
+	if ((error = path_exec(J, &path, 0)))
+		json_throw(J, error);
+
+	return json_v_length(J, path.value);
+} /* json_length() */
+
+
+size_t json_count(struct json *J, const char *fmt, ...) {
+	struct json_path path;
+	int error;
+
+	path_init(&path, fmt);
+
+	if ((error = path_exec(J, &path, 0)))
+		json_throw(J, error);
+
+	return json_v_count(J, path.value);
+} /* json_count() */
+
+
+_Bool json_boolean(struct json *J, const char *fmt, ...) {
+	struct json_path path;
+	int error;
+
+	path_init(&path, fmt);
+
+	if ((error = path_exec(J, &path, 0)))
+		json_throw(J, error);
+
+	return json_v_boolean(J, path.value);
+} /* json_boolean() */
+
+
 
 
 #include <stdio.h>

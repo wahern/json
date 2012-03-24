@@ -57,7 +57,9 @@ struct json_value *json_v_search(struct json *, struct json_value *, int, const 
 
 struct json_value *json_v_index(struct json *, struct json_value *, int, int);
 
-void json_v_delete(struct json *, struct json_value *);
+int json_v_delete(struct json *, struct json_value *);
+
+int json_v_clear(struct json *, struct json_value *);
 
 double json_v_number(struct json *, struct json_value *);
 
@@ -69,7 +71,17 @@ size_t json_v_count(struct json *, struct json_value *);
 
 _Bool json_v_boolean(struct json *, struct json_value *);
 
-void json_v_setstring(struct json *, struct json_value *, const void *, size_t);
+int json_v_setnumber(struct json *, struct json_value *, double);
+
+int json_v_setstring(struct json *, struct json_value *, const void *, size_t);
+
+int json_v_setboolean(struct json *, struct json_value *, _Bool);
+
+int json_v_setnull(struct json *, struct json_value *);
+
+int json_v_setarray(struct json *, struct json_value *);
+
+int json_v_setobject(struct json *, struct json_value *);
 
 
 /*
@@ -77,7 +89,13 @@ void json_v_setstring(struct json *, struct json_value *, const void *, size_t);
  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
+void json_delete(struct json *J, const char *, ...);
+
 int json_type(struct json *, const char *, ...);
+
+double json_number(struct json *, const char *, ...);
+
+const char *json_string(struct json *J, const char *, ...);
 
 //int json_push(struct json *, int, const char *path, ...);
 //struct json_value *json_root(struct json *, struct json_value *);
