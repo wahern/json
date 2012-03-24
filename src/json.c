@@ -816,6 +816,8 @@ static int object_insert(struct json_value *O, struct json_value *K, struct json
 	K->node = N;
 	V->node = N;
 
+	O->object.count++;
+
 	if (!(prev = LLRB_INSERT(object, &O->object.nodes, N)))
 		return 0;
 
@@ -872,6 +874,8 @@ static void array_clear(struct json_value *V, struct orphans *indices) {
 static void object_remove(struct json_value *V, struct node *N, struct orphans *keys) {
 	LLRB_REMOVE(object, &V->object.nodes, N);
 	N->parent = 0;
+
+	V->object.count--;
 
 	CIRCLEQ_INSERT_TAIL(keys, N, cqe);
 } /* object_remove() */
@@ -2428,6 +2432,7 @@ _Bool json_boolean(struct json *J, const char *fmt, ...) {
 
 #include <stdio.h>
 #include <unistd.h>
+#include <libgen.h>
 #include <err.h>
 
 #if __linux
@@ -2446,6 +2451,8 @@ struct call {
 		double d;
 		int i;
 		char *p;
+		unsigned long lu;
+		char c;
 	} rval;
 
 	int argc;
@@ -2489,7 +2496,7 @@ static void call_path(struct call *call, int *argc, char ***argv) {
 	struct json_path path;
 	int ch;
 
-	if (argc) {
+	if (*argc) {
 		path.fmt = path.fp = **argv;
 		--*argc;
 		++*argv;
@@ -2540,19 +2547,40 @@ static void call_exec(struct call *fun) {
 } /* call_exec() */
 
 
+#define USAGE \
+	"%s [-pf:h] [cmd [args] ...]\n" \
+	"  -p       pretty print\n" \
+	"  -f PATH  file to parse\n" \
+	"  -h       print usage\n" \
+	"\n" \
+	"Report bugs to <william@25thandClement.com>\n"
+
 int main(int argc, char **argv) {
 	extern int optind;
+	char *arg0 = (argc)? argv[0] : "json";
 	struct json *J;
 	int flags = 0, opt, error;
-	const char *cmd;
+	const char *file = "-", *cmd;
 	struct call fun;
 
-	while (-1 != (opt = getopt(argc, argv, "p"))) {
+	while (-1 != (opt = getopt(argc, argv, "pf:h"))) {
 		switch (opt) {
 		case 'p':
 			flags |= JSON_F_PRETTY;
 
 			break;
+		case 'f':
+			file = optarg;
+
+			break;
+		case 'h':
+			fprintf(stdout, USAGE, basename(arg0));
+
+			return 0;
+		default:
+			fprintf(stderr, USAGE, basename(arg0));
+
+			return 1;
 		} /* switch() */
 	} /* switch() */
 
@@ -2569,8 +2597,13 @@ int main(int argc, char **argv) {
 
 	J = json_open(0, &error);
 
-	if ((error = json_loadfile(J, stdin)))
-		errx(1, "stdin: %s", json_strerror(error));
+	if (!strcmp(file, "-"))
+		error = json_loadfile(J, stdin);
+	else
+		error = json_loadpath(J, file);
+
+	if (error)
+		errx(1, "%s: %s", file, json_strerror(error));
 
 	do {
 		if (!strcmp(cmd, "print")) {
@@ -2599,6 +2632,24 @@ int main(int argc, char **argv) {
 			call_path(&fun, &argc, &argv);
 			call_exec(&fun);
 			printf("%s\n", fun.rval.p);
+		} else if (!strcmp(cmd, "length")) {
+			call_init(&fun, &ffi_type_ulong, (void *)&json_length);
+			call_push(&fun, &ffi_type_pointer, J);
+			call_path(&fun, &argc, &argv);
+			call_exec(&fun);
+			printf("%lu\n", fun.rval.lu);
+		} else if (!strcmp(cmd, "count")) {
+			call_init(&fun, &ffi_type_ulong, (void *)&json_count);
+			call_push(&fun, &ffi_type_pointer, J);
+			call_path(&fun, &argc, &argv);
+			call_exec(&fun);
+			printf("%lu\n", fun.rval.lu);
+		} else if (!strcmp(cmd, "boolean")) {
+			call_init(&fun, &ffi_type_schar, (void *)&json_boolean);
+			call_push(&fun, &ffi_type_pointer, J);
+			call_path(&fun, &argc, &argv);
+			call_exec(&fun);
+			printf("%s\n", (fun.rval.c)? "true" : "false");
 		} else
 			errx(1, "%s: invalid command", cmd);
 
