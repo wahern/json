@@ -31,6 +31,7 @@ override LDLIBS   += -lffi
 
 ifeq (Linux,$(shell uname -s))
 override CPPFLAGS += -DFFI_H_PATH=\<ffi.h\>
+override LDLIBS   += -lm
 else
 ifeq (OpenBSD,$(shell uname -s))
 override CPPFLAGS += -I/usr/local/include -DFFI_H_PATH=\<ffi.h\>
