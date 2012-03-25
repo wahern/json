@@ -2379,6 +2379,11 @@ error:
 static int path_exec(struct json *J, struct json_path *path, int mode) {
 	int error = 0;
 
+	if (!J->root && (mode & JSON_M_AUTOVIV)) {
+		if (!(J->root = value_open(JSON_V_NULL, NULL, &error)))
+			return error;
+	}
+
 	path->value = J->root;
 
 	while (path->value && path_next(path, &error)) {
@@ -2544,7 +2549,7 @@ int json_setarray(struct json *J, const char *fmt, ...) {
 	if ((error = path_exec(J, &path, JSON_M_AUTOVIV|JSON_M_CONVERT)))
 		return json_throw(J, error);
 
-	return json_v_setnull(J, path.value);
+	return json_v_setarray(J, path.value);
 } /* json_setarray() */
 
 
@@ -2557,7 +2562,7 @@ int json_setobject(struct json *J, const char *fmt, ...) {
 	if ((error = path_exec(J, &path, JSON_M_AUTOVIV|JSON_M_CONVERT)))
 		return json_throw(J, error);
 
-	return json_v_setnull(J, path.value);
+	return json_v_setobject(J, path.value);
 } /* json_setobject() */
 
 
@@ -2718,7 +2723,7 @@ int main(int argc, char **argv) {
 	char *arg0 = (argc)? argv[0] : "json";
 	struct json *J;
 	int flags = 0, opt, error;
-	const char *file = "-", *cmd;
+	const char *file = NULL, *cmd;
 	struct call fun;
 
 	while (-1 != (opt = getopt(argc, argv, "pf:Vh"))) {
@@ -2762,13 +2767,15 @@ int main(int argc, char **argv) {
 
 	J = json_open(0, &error);
 
-	if (!strcmp(file, "-"))
-		error = json_loadfile(J, stdin);
-	else
-		error = json_loadpath(J, file);
+	if (file) {
+		if (!strcmp(file, "-"))
+			error = json_loadfile(J, stdin);
+		else
+			error = json_loadpath(J, file);
 
-	if (error)
-		errx(1, "%s: %s", file, json_strerror(error));
+		if (error)
+			errx(1, "%s: %s", file, json_strerror(error));
+	}
 
 	do {
 		if (!strcmp(cmd, "print")) {
