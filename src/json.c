@@ -766,7 +766,7 @@ static int value_init(struct json_value *V, enum json_values type, struct token 
 		V->number = (T)? T->number : 0.0;
 		break;
 	case JSON_V_BOOLEAN:
-		V->boolean = T->boolean;
+		V->boolean = (T)? T->boolean : 0;
 		break;
 	default:
 		break;
@@ -2623,6 +2623,8 @@ static void call_push(struct call *call, ffi_type *type, ...) {
 		call->arg[call->argc].lu = va_arg(ap, unsigned long);
 	else if (type == &ffi_type_double)
 		call->arg[call->argc].d = va_arg(ap, double);
+	else if (type == &ffi_type_schar)
+		call->arg[call->argc].c = va_arg(ap, int);
 	else
 		call->arg[call->argc].i = va_arg(ap, int);
 
@@ -2822,7 +2824,40 @@ int main(int argc, char **argv) {
 			argc--; argv++;
 			call_path(&fun, &argc, &argv);
 			call_exec(&fun);
-			printf("%s\n", (fun.rval.c)? "true" : "false");
+		} else if (!strcmp(cmd, "setstring")) {
+			call_init(&fun, &ffi_type_sint, (void *)&json_setstring);
+			call_push(&fun, &ffi_type_pointer, J);
+			if (!argc)
+				errx(1, "setstring: missing argument");
+			call_push(&fun, &ffi_type_pointer, *argv);
+			call_push(&fun, &ffi_type_ulong, strlen(*argv));
+			argc--; argv++;
+			call_path(&fun, &argc, &argv);
+			call_exec(&fun);
+		} else if (!strcmp(cmd, "setboolean")) {
+			call_init(&fun, &ffi_type_sint, (void *)&json_setboolean);
+			call_push(&fun, &ffi_type_pointer, J);
+			if (!argc)
+				errx(1, "setboolean: missing argument");
+			call_push(&fun, &ffi_type_schar, (**argv == 't' || **argv == '1'));
+			argc--; argv++;
+			call_path(&fun, &argc, &argv);
+			call_exec(&fun);
+		} else if (!strcmp(cmd, "setnull")) {
+			call_init(&fun, &ffi_type_sint, (void *)&json_setnull);
+			call_push(&fun, &ffi_type_pointer, J);
+			call_path(&fun, &argc, &argv);
+			call_exec(&fun);
+		} else if (!strcmp(cmd, "setarray")) {
+			call_init(&fun, &ffi_type_sint, (void *)&json_setarray);
+			call_push(&fun, &ffi_type_pointer, J);
+			call_path(&fun, &argc, &argv);
+			call_exec(&fun);
+		} else if (!strcmp(cmd, "setobject")) {
+			call_init(&fun, &ffi_type_sint, (void *)&json_setobject);
+			call_push(&fun, &ffi_type_pointer, J);
+			call_path(&fun, &argc, &argv);
+			call_exec(&fun);
 		} else
 			errx(1, "%s: invalid command", cmd);
 
