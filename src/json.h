@@ -134,6 +134,12 @@ int json_v_setobject(struct json *, struct json_value *);
  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
+int json_push(struct json *J, const char *, ...);
+
+void json_pop(struct json *);
+
+void json_popall(struct json *);
+
 void json_delete(struct json *J, const char *, ...);
 
 double json_number(struct json *, const char *, ...);

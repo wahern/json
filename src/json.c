@@ -2397,6 +2397,42 @@ static int path_exec(struct json *J, struct json_path *path, int mode) {
 } /* path_exec() */
 
 
+int json_push(struct json *J, const char *fmt, ...) {
+	struct json_path path;
+	int error;
+
+	path_init(&path, fmt);
+
+	if ((error = path_exec(J, &path, JSON_M_AUTOVIV|JSON_M_CONVERT)))
+		return json_throw(J, error);
+
+	path.value->root = J->root;
+	J->root = path.value;
+
+	return 0;
+} /* json_push() */
+
+
+void json_pop(struct json *J) {
+	struct json_value *oroot;
+
+	if ((oroot = J->root) && oroot->root) {
+		J->root = oroot->root;
+		oroot->root = NULL;
+	}
+} /* json_pop() */
+
+
+void json_popall(struct json *J) {
+	struct json_value *oroot;
+
+	while ((oroot = J->root) && oroot->root) {
+		J->root = oroot->root;
+		oroot->root = NULL;
+	}
+} /* json_popall() */
+
+
 void json_delete(struct json *J, const char *fmt, ...) {
 	struct json_path path;
 	int error;
@@ -2781,6 +2817,7 @@ int main(int argc, char **argv) {
 		if (!strcmp(cmd, "print")) {
 			if ((error = json_printfile(J, stdout, flags)))
 				errx(1, "stdout: %s", json_strerror(error));
+			fputc('\n', stdout);
 		} else if (!strcmp(cmd, "delete")) {
 			call_init(&fun, &ffi_type_void, (void *)&json_delete);
 			call_push(&fun, &ffi_type_pointer, J);
@@ -2822,6 +2859,26 @@ int main(int argc, char **argv) {
 			call_path(&fun, &argc, &argv);
 			call_exec(&fun);
 			printf("%s\n", (fun.rval.c)? "true" : "false");
+		} else if (!strcmp(cmd, "push")) {
+			call_init(&fun, &ffi_type_sint, (void *)&json_push);
+			call_push(&fun, &ffi_type_pointer, J);
+			call_path(&fun, &argc, &argv);
+			call_exec(&fun);
+		} else if (!strcmp(cmd, "pop")) {
+			call_init(&fun, &ffi_type_void, (void *)&json_pop);
+			call_push(&fun, &ffi_type_pointer, J);
+			call_path(&fun, &argc, &argv);
+			call_exec(&fun);
+		} else if (!strcmp(cmd, "popall")) {
+			call_init(&fun, &ffi_type_void, (void *)&json_popall);
+			call_push(&fun, &ffi_type_pointer, J);
+			call_path(&fun, &argc, &argv);
+			call_exec(&fun);
+		} else if (!strcmp(cmd, "delete")) {
+			call_init(&fun, &ffi_type_void, (void *)&json_delete);
+			call_push(&fun, &ffi_type_pointer, J);
+			call_path(&fun, &argc, &argv);
+			call_exec(&fun);
 		} else if (!strcmp(cmd, "setnumber")) {
 			call_init(&fun, &ffi_type_sint, (void *)&json_setnumber);
 			call_push(&fun, &ffi_type_pointer, J);
