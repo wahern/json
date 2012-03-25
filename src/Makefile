@@ -1,6 +1,9 @@
-CC = $(shell env PATH="/usr/local/gcc46/bin:$${PATH}" command -v gcc)
-CPPFLAGS=-D_GNU_SOURCE -D_BSD_SOURCE -D_DARWIN_C_SOURCE
-CFLAGS = -std=c1x -Wall -Wextra -O2 -g
+# Find most recent GCC version
+CC := $(shell find $$(echo $${PATH} | tr ':' ' ') -maxdepth 1 -name gcc -o -name gcc-\* | while read GCC; do echo $$($$GCC -v 2>&1 | tail -n1 | cut -d' ' -f3) $$GCC; done | sort -nr | head -n1 | cut -d' ' -f2)
+
+CPPFLAGS=-D_GNU_SOURCE -D_BSD_SOURCE -D_DARWIN_C_SOURCE -DJSON_MAIN
+DFLAGS = -Wall -Wextra -O0 -g
+CFLAGS = -std=c1x $(DFLAGS)
 LDFLAGS = -lffi
 
 all: json

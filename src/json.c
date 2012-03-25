@@ -93,6 +93,36 @@ const char *json_strerror(int error) {
 
 
 /*
+ * V E R S I O N  R O U T I N E S
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+const char *json_vendor(void) {
+	return JSON_VENDOR;
+} /* json_vendor() */
+
+
+int json_version(void) {
+	return JSON_VERSION;
+} /* json_version() */
+
+
+int json_v_rel(void) {
+	return JSON_V_REL;
+} /* json_v_rel() */
+
+
+int json_v_abi(void) {
+	return JSON_V_ABI;
+} /* json_v_abi() */
+
+
+int json_v_api(void) {
+	return JSON_V_API;
+} /* json_v_api() */
+
+
+/*
  * S T R I N G  R O U T I N E S
  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
@@ -1943,21 +1973,21 @@ struct json_value *json_root(struct json *J) {
 } /* json_root() */
 
 
-static int json_v_search_(struct json_value **V, struct json *J, struct json_value *O, int mode, const void *name, size_t len) {
+static int json_v_search_(struct json_value **V, struct json *J NOTUSED, struct json_value *O, int mode, const void *name, size_t len) {
 	struct json_value *K = NULL;
 	int error;
 
 	*V = NULL;
 
 	if (O->type != JSON_V_OBJECT) {
-		if (!(mode & JSON_M_CREATE) || !(mode & JSON_M_CONVERT))
+		if (!(mode & JSON_M_AUTOVIV) || !(mode & JSON_M_CONVERT))
 			return 0;
 
 		if ((error = value_convert(O, JSON_V_OBJECT)))
 			goto error;
 	}
 
-	if ((*V = object_search(O, name, len)) || !(mode & JSON_M_CREATE))
+	if ((*V = object_search(O, name, len)) || !(mode & JSON_M_AUTOVIV))
 		return 0;
 
 	if (!(K = value_open(JSON_V_STRING, NULL, &error)))
@@ -1978,7 +2008,7 @@ error:
 	value_close(*V, 0);
 	*V = NULL;
 
-	return json_throw(J, error);
+	return error;
 } /* json_v_search_() */
 
 
@@ -1993,20 +2023,20 @@ struct json_value *json_v_search(struct json *J, struct json_value *O, int mode,
 } /* json_v_search() */
 
 
-static int json_v_index_(struct json_value **V, struct json *J, struct json_value *A, int mode, int index) {
+static int json_v_index_(struct json_value **V, struct json *J NOTUSED, struct json_value *A, int mode, int index) {
 	int error;
 
 	*V = NULL;
 
 	if (A->type != JSON_V_ARRAY) {
-		if (!(mode & JSON_M_CREATE) || !(mode & JSON_M_CONVERT))
+		if (!(mode & JSON_M_AUTOVIV) || !(mode & JSON_M_CONVERT))
 			return 0;
 
 		if ((error = value_convert(A, JSON_V_ARRAY)))
 			goto error;
 	}
 
-	if ((*V = array_index(A, index)) || !(mode & JSON_M_CREATE))
+	if ((*V = array_index(A, index)) || !(mode & JSON_M_AUTOVIV))
 		return 0;
 
 	if (!(*V = value_open(JSON_V_NULL, NULL, &error)))
@@ -2020,7 +2050,7 @@ error:
 	value_close(*V, 0);
 	*V = NULL;
 
-	return json_throw(J, error);
+	return error;
 } /* json_v_index_() */
 
 
@@ -2428,7 +2458,85 @@ _Bool json_boolean(struct json *J, const char *fmt, ...) {
 } /* json_boolean() */
 
 
+int json_setnumber(struct json *J, double number, const char *fmt, ...) {
+	struct json_path path;
+	int error;
 
+	path_init(&path, fmt);
+
+	if ((error = path_exec(J, &path, JSON_M_AUTOVIV|JSON_M_CONVERT)))
+		return json_throw(J, error);
+
+	return json_v_setnumber(J, path.value, number);
+} /* json_setnumber() */
+
+
+int json_setstring(struct json *J, const void *src, size_t len, const char *fmt, ...) {
+	struct json_path path;
+	int error;
+
+	path_init(&path, fmt);
+
+	if ((error = path_exec(J, &path, JSON_M_AUTOVIV|JSON_M_CONVERT)))
+		return json_throw(J, error);
+
+	return json_v_setstring(J, path.value, src, len);
+} /* json_setstring() */
+
+
+int json_setboolean(struct json *J, _Bool boolean, const char *fmt, ...) {
+	struct json_path path;
+	int error;
+
+	path_init(&path, fmt);
+
+	if ((error = path_exec(J, &path, JSON_M_AUTOVIV|JSON_M_CONVERT)))
+		return json_throw(J, error);
+
+	return json_v_setboolean(J, path.value, boolean);
+} /* json_setboolean() */
+
+
+int json_setnull(struct json *J, const char *fmt, ...) {
+	struct json_path path;
+	int error;
+
+	path_init(&path, fmt);
+
+	if ((error = path_exec(J, &path, JSON_M_AUTOVIV|JSON_M_CONVERT)))
+		return json_throw(J, error);
+
+	return json_v_setnull(J, path.value);
+} /* json_setnull() */
+
+
+int json_setarray(struct json *J, const char *fmt, ...) {
+	struct json_path path;
+	int error;
+
+	path_init(&path, fmt);
+
+	if ((error = path_exec(J, &path, JSON_M_AUTOVIV|JSON_M_CONVERT)))
+		return json_throw(J, error);
+
+	return json_v_setnull(J, path.value);
+} /* json_setarray() */
+
+
+int json_setobject(struct json *J, const char *fmt, ...) {
+	struct json_path path;
+	int error;
+
+	path_init(&path, fmt);
+
+	if ((error = path_exec(J, &path, JSON_M_AUTOVIV|JSON_M_CONVERT)))
+		return json_throw(J, error);
+
+	return json_v_setnull(J, path.value);
+} /* json_setobject() */
+
+
+#if JSON_MAIN
 
 #include <stdio.h>
 #include <unistd.h>
@@ -2458,8 +2566,11 @@ struct call {
 	int argc;
 
 	union {
+		double d;
 		int i;
 		char *p;
+		unsigned long lu;
+		char c;
 	} arg[16];
 
 	ffi_type *type[16];
@@ -2483,6 +2594,10 @@ static void call_push(struct call *call, ffi_type *type, ...) {
 
 	if (type == &ffi_type_pointer)
 		call->arg[call->argc].p = va_arg(ap, void *);
+	else if (type == &ffi_type_ulong)
+		call->arg[call->argc].lu = va_arg(ap, unsigned long);
+	else if (type == &ffi_type_double)
+		call->arg[call->argc].d = va_arg(ap, double);
 	else
 		call->arg[call->argc].i = va_arg(ap, int);
 
@@ -2548,12 +2663,28 @@ static void call_exec(struct call *fun) {
 
 
 #define USAGE \
-	"%s [-pf:h] [cmd [args] ...]\n" \
+	"%s [-pf:Vh] [cmd [args] ...]\n" \
 	"  -p       pretty print\n" \
 	"  -f PATH  file to parse\n" \
+	"  -V       print version\n" \
 	"  -h       print usage\n" \
 	"\n" \
 	"Report bugs to <william@25thandClement.com>\n"
+
+static void usage(const char *arg0, FILE *fp) {
+	fprintf(fp, USAGE, arg0);
+} /* usage() */
+
+static void version(const char *arg0, FILE *fp) {
+	fprintf(fp, "%s (json.c) %.8X\n", arg0, json_version());
+	fprintf(fp, "built   %s %s\n", __DATE__, __TIME__);
+	fprintf(fp, "vendor  %s\n", json_vendor());
+	fprintf(fp, "release %.8X\n", json_v_rel());
+	fprintf(fp, "abi     %.8X\n", json_v_abi());
+	fprintf(fp, "api     %.8X\n", json_v_api());
+} /* version() */
+
+static int lex_main(const char *);
 
 int main(int argc, char **argv) {
 	extern int optind;
@@ -2563,7 +2694,7 @@ int main(int argc, char **argv) {
 	const char *file = "-", *cmd;
 	struct call fun;
 
-	while (-1 != (opt = getopt(argc, argv, "pf:h"))) {
+	while (-1 != (opt = getopt(argc, argv, "pf:Vh"))) {
 		switch (opt) {
 		case 'p':
 			flags |= JSON_F_PRETTY;
@@ -2573,12 +2704,16 @@ int main(int argc, char **argv) {
 			file = optarg;
 
 			break;
+		case 'V':
+			version(basename(arg0), stdout);
+
+			return 0;
 		case 'h':
-			fprintf(stdout, USAGE, basename(arg0));
+			usage(basename(arg0), stdout);
 
 			return 0;
 		default:
-			fprintf(stderr, USAGE, basename(arg0));
+			usage(basename(arg0), stderr);
 
 			return 1;
 		} /* switch() */
@@ -2594,6 +2729,9 @@ int main(int argc, char **argv) {
 	} else {
 		cmd = "print";
 	}
+
+	if (!strcmp(cmd, "lex"))
+		return lex_main(file);
 
 	J = json_open(0, &error);
 
@@ -2650,6 +2788,16 @@ int main(int argc, char **argv) {
 			call_path(&fun, &argc, &argv);
 			call_exec(&fun);
 			printf("%s\n", (fun.rval.c)? "true" : "false");
+		} else if (!strcmp(cmd, "setnumber")) {
+			call_init(&fun, &ffi_type_sint, (void *)&json_setnumber);
+			call_push(&fun, &ffi_type_pointer, J);
+			if (!argc)
+				errx(1, "setnumber: missing argument");
+			call_push(&fun, &ffi_type_double, atof(*argv));
+			argc--; argv++;
+			call_path(&fun, &argc, &argv);
+			call_exec(&fun);
+			printf("%s\n", (fun.rval.c)? "true" : "false");
 		} else
 			errx(1, "%s: invalid command", cmd);
 
@@ -2666,21 +2814,26 @@ int main(int argc, char **argv) {
 	return 0;
 } /* main() */
 
-
-#if 0
-int main(void) {
+static int lex_main(const char *file) {
+	FILE *fp = stdin;
 	struct lexer L;
 	char ibuf[1];
 	size_t count;
 	struct token *T;
 	int error;
 
+	if (strcmp(file, "-") && !(fp = fopen(file, "r")))
+		err(1, "%s", file);
+
 	lex_init(&L);
 
-	while ((count = fread(ibuf, 1, sizeof ibuf, stdin))) {
+	while ((count = fread(ibuf, 1, sizeof ibuf, fp))) {
 		if ((error = lex_parse(&L, ibuf, count)))
 			errx(1, "parse: %s", strerror(error));
 	}
+
+	if (fp != stdin)
+		fclose(fp);
 
 	CIRCLEQ_FOREACH(T, &L.tokens, cqe) {
 		switch (T->type) {
@@ -2698,5 +2851,6 @@ int main(void) {
 	lex_destroy(&L);
 
 	return 0;
-} /* main() */
-#endif
+} /* lex_main() */
+
+#endif /* JSON_MAIN */

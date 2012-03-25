@@ -7,6 +7,26 @@
 
 
 /*
+ * J S O N  V E R S I O N  I N T E R F A C E S
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+#define JSON_VERSION JSON_V_REL
+#define JSON_VENDOR "william@25thandClement.com"
+
+#define JSON_V_REL 0x20120324
+#define JSON_V_ABI 0x20120324
+#define JSON_V_API 0x20120324
+
+int json_version(void);
+const char *json_vendor(void);
+
+int json_v_rel(void);
+int json_v_abi(void);
+int json_v_api(void);
+
+
+/*
  * J S O N  C O R E  I N T E R F A C E S
  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
@@ -50,7 +70,7 @@ int json_printfile(struct json *, FILE *, int);
  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-#define JSON_M_CREATE  0x01
+#define JSON_M_AUTOVIV 0x01
 #define JSON_M_CONVERT 0x02
 
 struct json_value *json_v_search(struct json *, struct json_value *, int, const void *, size_t);
@@ -91,14 +111,26 @@ int json_v_setobject(struct json *, struct json_value *);
 
 void json_delete(struct json *J, const char *, ...);
 
-int json_type(struct json *, const char *, ...);
-
 double json_number(struct json *, const char *, ...);
 
 const char *json_string(struct json *J, const char *, ...);
 
-//int json_push(struct json *, int, const char *path, ...);
-//struct json_value *json_root(struct json *, struct json_value *);
+size_t json_length(struct json *J, const char *, ...);
+
+_Bool json_boolean(struct json *J, const char *, ...);
+
+int json_setnumber(struct json *, double, const char *, ...);
+
+int json_setstring(struct json *, const void *, size_t, const char *, ...);
+
+int json_setboolean(struct json *, _Bool, const char *, ...);
+
+int json_setnull(struct json *, const char *, ...);
+
+int json_setarray(struct json *, const char *, ...);
+
+int json_setobject(struct json *, const char *, ...);
+
 
 
 /*
