@@ -2612,7 +2612,6 @@ int json_setobject(struct json *J, const char *fmt, ...) {
 #if defined FFI_H_PATH
 #include FFI_H_PATH
 #else
-#include
 #include <ffi/ffi.h>
 #endif
 
