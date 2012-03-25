@@ -2817,7 +2817,8 @@ int main(int argc, char **argv) {
 		if (!strcmp(cmd, "print")) {
 			if ((error = json_printfile(J, stdout, flags)))
 				errx(1, "stdout: %s", json_strerror(error));
-			fputc('\n', stdout);
+			if (!(flags & JSON_F_PRETTY))
+				fputc('\n', stdout);
 		} else if (!strcmp(cmd, "delete")) {
 			call_init(&fun, &ffi_type_void, (void *)&json_delete);
 			call_push(&fun, &ffi_type_pointer, J);
