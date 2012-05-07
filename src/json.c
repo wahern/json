@@ -28,7 +28,7 @@
 #include <stdlib.h>	/* malloc(3) realloc(3) free(3) strtod(3) */
 #include <stdio.h>	/* EOF snprintf(3) fopen(3) fclose(3) ferror(3) clearerr(3) */
 
-#include <string.h>	/* memset(3) strncmp(3) */
+#include <string.h>	/* memset(3) strncmp(3) strlen(3) */
 
 #include <ctype.h>	/* isdigit(3) isgraph(3) */
 
@@ -47,13 +47,18 @@
  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
+#undef PASTE
 #define PASTE(x, y) x ## y
+#undef XPASTE
 #define XPASTE(x, y) PASTE(x, y)
 
+#undef MIN
 #define MIN(a, b) (((a) < (b))? (a) : (b))
 #define CMP(a, b) (((a) < (b))? -1 : ((a) > (b))? 1 : 0)
 
+#undef countof
 #define countof(a) (sizeof (a) / sizeof *(a))
+#undef endof
 #define endof(a) (&(a)[countof(a)])
 
 #define SAY_(file, func, line, fmt, ...) \
@@ -67,27 +72,30 @@
 
 
 #if __linux
-static size_t xstrlcpy(char *dst, const char *src, size_t len) {
+static inline size_t json_strlcpy(char *dst, const char *src, size_t len) {
 	char *end = stpncpy(dst, src, len);
 
 	if (len)
 		dst[len - 1] = '\0';
 
 	return end - dst;
-} /* xstrlcpy() */
+} /* json_strlcpy() */
 
-#define strlcpy(...) xstrlcpy(__VA_ARGS__)
+#undef strlcpy
+#define strlcpy(...) json_strlcpy(__VA_ARGS__)
 #endif
 
 
-static void *make(size_t size, int *error) {
+static inline void *json_make(size_t size, int *error) {
 	void *p;
 
 	if (!(p = malloc(size)))
 		*error = errno;
 
 	return p;
-} /* make() */
+} /* json_make() */
+
+#define make(...) json_make(__VA_ARGS__)
 
 
 static void *make0(size_t size, int *error) {
@@ -1757,7 +1765,7 @@ struct json {
 struct json *json_open(int flags, int *error) {
 	struct json *J;
 
-	if (!(J = make(sizeof *J, error)))
+	if (!(J = make0(sizeof *J, error)))
 		return NULL;
 
 	J->flags = flags;
@@ -1773,6 +1781,9 @@ struct json *json_open(int flags, int *error) {
 
 void json_close(struct json *J) {
 	struct json_value *root;
+
+	if (!J)
+		return;
 
 	parse_destroy(&J->parser);
 
@@ -2162,7 +2173,7 @@ int json_v_setnumber(struct json *J, struct json_value *V, double number) {
 } /* json_v_setnumber() */
 
 
-int json_v_setstring(struct json *J, struct json_value *V, const void *sp, size_t len) {
+int json_v_setlstring(struct json *J, struct json_value *V, const void *sp, size_t len) {
 	int error;
 
 	if ((error = value_convert(V, JSON_V_STRING)))
@@ -2171,6 +2182,11 @@ int json_v_setstring(struct json *J, struct json_value *V, const void *sp, size_
 	string_reset(&V->string);
 
 	return json_ifthrow(J, string_cats(&V->string, sp, len));
+} /* json_v_setlstring() */
+
+
+int json_v_setstring(struct json *J, struct json_value *V, const void *sp) {
+	return json_v_setlstring(J, V, sp, strlen((sp)? sp : 0));
 } /* json_v_setstring() */
 
 
@@ -2537,7 +2553,7 @@ int json_setnumber(struct json *J, double number, const char *fmt, ...) {
 } /* json_setnumber() */
 
 
-int json_setstring(struct json *J, const void *src, size_t len, const char *fmt, ...) {
+int json_setlstring(struct json *J, const void *src, size_t len, const char *fmt, ...) {
 	struct json_path path;
 	int error;
 
@@ -2546,7 +2562,20 @@ int json_setstring(struct json *J, const void *src, size_t len, const char *fmt,
 	if ((error = path_exec(J, &path, JSON_M_AUTOVIV|JSON_M_CONVERT)))
 		return json_throw(J, error);
 
-	return json_v_setstring(J, path.value, src, len);
+	return json_v_setlstring(J, path.value, src, len);
+} /* json_setlstring() */
+
+
+int json_setstring(struct json *J, const void *src, const char *fmt, ...) {
+	struct json_path path;
+	int error;
+
+	path_init(&path, fmt);
+
+	if ((error = path_exec(J, &path, JSON_M_AUTOVIV|JSON_M_CONVERT)))
+		return json_throw(J, error);
+
+	return json_v_setstring(J, path.value, src);
 } /* json_setstring() */
 
 
@@ -2890,7 +2919,7 @@ int main(int argc, char **argv) {
 			call_path(&fun, &argc, &argv);
 			call_exec(&fun);
 		} else if (!strcmp(cmd, "setstring")) {
-			call_init(&fun, &ffi_type_sint, (void *)&json_setstring);
+			call_init(&fun, &ffi_type_sint, (void *)&json_setlstring);
 			call_push(&fun, &ffi_type_pointer, J);
 			if (!argc)
 				errx(1, "setstring: missing argument");

@@ -39,9 +39,9 @@
 #define JSON_VERSION JSON_V_REL
 #define JSON_VENDOR "william@25thandClement.com"
 
-#define JSON_V_REL 0x20120324
-#define JSON_V_ABI 0x20120324
-#define JSON_V_API 0x20120324
+#define JSON_V_REL 0x20120507
+#define JSON_V_ABI 0x20120505
+#define JSON_V_API 0x20120505
 
 int json_version(void);
 const char *json_vendor(void);
@@ -118,7 +118,9 @@ _Bool json_v_boolean(struct json *, struct json_value *);
 
 int json_v_setnumber(struct json *, struct json_value *, double);
 
-int json_v_setstring(struct json *, struct json_value *, const void *, size_t);
+int json_v_setlstring(struct json *, struct json_value *, const void *, size_t);
+
+int json_v_setstring(struct json *, struct json_value *, const void *);
 
 int json_v_setboolean(struct json *, struct json_value *, _Bool);
 
@@ -152,7 +154,9 @@ _Bool json_boolean(struct json *J, const char *, ...);
 
 int json_setnumber(struct json *, double, const char *, ...);
 
-int json_setstring(struct json *, const void *, size_t, const char *, ...);
+int json_setlstring(struct json *, const void *, size_t, const char *, ...);
+
+int json_setstring(struct json *, const void *, const char *, ...);
 
 int json_setboolean(struct json *, _Bool, const char *, ...);
 
@@ -170,6 +174,7 @@ int json_setobject(struct json *, const char *, ...);
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 #define JSON_EBASE -(('J' << 24) | ('S' << 16) | ('O' << 8) | 'N')
+#define JSON_ERROR(error) ((error) <= JSON_EBASE && (error) < JSON_ELAST)
 
 enum json_errors {
 	JSON_EASSERT = JSON_EBASE,
