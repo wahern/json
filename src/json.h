@@ -39,8 +39,8 @@
 #define JSON_VERSION JSON_V_REL
 #define JSON_VENDOR "william@25thandClement.com"
 
-#define JSON_V_REL 0x20120507
-#define JSON_V_ABI 0x20120505
+#define JSON_V_REL 0x20120512
+#define JSON_V_ABI 0x20120512
 #define JSON_V_API 0x20120505
 
 int json_version(void);
@@ -174,7 +174,7 @@ int json_setobject(struct json *, const char *, ...);
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 #define JSON_EBASE -(('J' << 24) | ('S' << 16) | ('O' << 8) | 'N')
-#define JSON_ERROR(error) ((error) <= JSON_EBASE && (error) < JSON_ELAST)
+#define JSON_ERROR(error) ((error) >= JSON_EBASE && (error) < JSON_ELAST)
 
 enum json_errors {
 	JSON_EASSERT = JSON_EBASE,
