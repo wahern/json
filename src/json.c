@@ -86,6 +86,11 @@ static inline size_t json_strlcpy(char *dst, const char *src, size_t len) {
 #endif
 
 
+static inline size_t json_strlen(const char *src) {
+	return (src)? strlen(src) : 0;
+} /* json_strlen() */
+
+
 static inline void *json_make(size_t size, int *error) {
 	void *p;
 
@@ -1861,7 +1866,7 @@ int json_loadlstring(struct json *J, const void *src, size_t len) {
 
 
 int json_loadstring(struct json *J, const char *src) {
-	return json_loadlstring(J, src, strlen(src));
+	return json_loadlstring(J, src, json_strlen(src));
 } /* json_loadstring() */
 
 
@@ -2186,7 +2191,7 @@ int json_v_setlstring(struct json *J, struct json_value *V, const void *sp, size
 
 
 int json_v_setstring(struct json *J, struct json_value *V, const void *sp) {
-	return json_v_setlstring(J, V, sp, strlen((sp)? sp : 0));
+	return json_v_setlstring(J, V, sp, json_strlen(sp));
 } /* json_v_setstring() */
 
 
