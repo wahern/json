@@ -40,7 +40,7 @@
 #define JSON_VENDOR "william@25thandClement.com"
 
 #define JSON_V_REL 0x20120523
-#define JSON_V_ABI 0x20120505
+#define JSON_V_ABI 0x20120512
 #define JSON_V_API 0x20120505
 
 int json_version(void);
