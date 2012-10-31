@@ -39,9 +39,9 @@
 #define JSON_VERSION JSON_V_REL
 #define JSON_VENDOR "william@25thandClement.com"
 
-#define JSON_V_REL 0x20120523
+#define JSON_V_REL 0x20121031
 #define JSON_V_ABI 0x20120512
-#define JSON_V_API 0x20120505
+#define JSON_V_API 0x20121031
 
 int json_version(void);
 const char *json_vendor(void);
@@ -77,7 +77,7 @@ int json_loadfile(struct json *, FILE *);
 
 int json_loadpath(struct json *, const char *);
 
-/** compose JSON into buffer */
+/** compose JSON into buffer (does not nul terminate) */
 size_t json_compose(struct json *, void *, size_t, int, int *);
 
 /** reset composition state */
@@ -86,8 +86,11 @@ void json_flush(struct json *);
 /** return next character in JSON composition */
 int json_getc(struct json *, int, int *);
 
-/** compose JSON into FILE */
+/** compose JSON into FILE using temporary composition context */
 int json_printfile(struct json *, FILE *, int);
+
+/** compose JSON into string using temporary composition context */
+size_t json_printstring(struct json *, void *, size_t, int, int *);
 
 
 /*

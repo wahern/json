@@ -1964,16 +1964,6 @@ int json_getc(struct json *J, int flags, int *error) {
 
 
 int json_printfile(struct json *J, FILE *fp, int flags) {
-#if 0
-	int c, error;
-
-	json_flush(J);
-
-	while (EOF != (c = json_getc(J, flags, &error)))
-		fputc(c, fp);
-
-	return 0;
-#else
 	struct printer P;
 	struct json_value *root;
 	char buffer[512];
@@ -2000,8 +1990,51 @@ syerr:
 	error = errno;
 error:
 	return json_throw(J, error);
-#endif
 } /* json_printfile() */
+
+
+size_t json_printstring(struct json *J, void *dst, size_t lim, int flags, int *error) {
+	struct printer P;
+	struct json_value *root;
+	char buffer[512], *p, *pe;
+	size_t count, total;
+
+	if (!(root = value_root(J->root)))
+		goto empty;
+
+	print_init(&P, root, flags|J->flags);
+
+	p = dst;
+	pe = p + lim;
+	total = 0;
+
+	while ((count = print(&P, buffer, sizeof buffer))) {
+		if (p < pe) {
+			memcpy(p, buffer, MIN((size_t)(pe - p), count));
+			p += MIN((size_t)(pe - p), count);
+		}
+
+		total += count;
+	}
+
+	if (P.error)
+		goto error;
+
+	if (lim)
+		((char *)dst)[MIN(lim - 1, total)] = '\0';
+
+	return total;
+error:
+	if (error)
+		*error = P.error;
+
+	json_throw(J, P.error);
+empty:
+	if (lim)
+		*(char *)dst = '\0';
+
+	return 0;
+} /* json_printstring() */
 
 
 /*
@@ -2851,6 +2884,22 @@ int main(int argc, char **argv) {
 		if (!strcmp(cmd, "print")) {
 			if ((error = json_printfile(J, stdout, flags)))
 				errx(1, "stdout: %s", json_strerror(error));
+			if (!(flags & JSON_F_PRETTY))
+				fputc('\n', stdout);
+		} else if (!strcmp(cmd, "puts")) {
+			char *buf;
+			size_t len;
+
+			len = json_printstring(J, NULL, 0, flags, NULL);
+
+			if (!(buf = malloc(len + 1)))
+				err(1, "stdout");
+
+			json_printstring(J, buf, len + 1, flags, NULL);
+
+			fputs(buf, stdout);
+			free(buf);
+
 			if (!(flags & JSON_F_PRETTY))
 				fputc('\n', stdout);
 		} else if (!strcmp(cmd, "delete")) {
