@@ -56,7 +56,7 @@ int json_v_api(void);
  *
  * A note on parsing and composition of JSON documents: the routines
  * json_parse(), json_compose(), and json_getc() are stateful, which means
- * that can be called multiple times to parse or compose (print) successive
+ * they can be called multiple times to parse or compose (print) successive
  * chunks of the JSON text document. These routines maintain state with
  * pointers to the current node and its data buffer.
  *
