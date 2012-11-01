@@ -26,9 +26,9 @@
 #ifndef JSON_H
 #define JSON_H
 
-#include <stddef.h>	/* size_t */
+#include <stddef.h> /* size_t */
 
-#include <setjmp.h>	/* _setjmp(3) */
+#include <setjmp.h> /* _setjmp(3) */
 
 
 /*
@@ -54,6 +54,17 @@ int json_v_api(void);
 /*
  * J S O N  C O R E  I N T E R F A C E S
  *
+ * A note on parsing and composition of JSON documents: the routines
+ * json_parse(), json_compose(), and json_getc() are stateful, which means
+ * that can be called multiple times to parse or compose (print) successive
+ * chunks of the JSON text document. These routines maintain state with
+ * pointers to the current node and its data buffer.
+ *
+ * The routines json_load*() and json_print*() are not stateful, and neither
+ * read nor write any persistent state information. The entire document is
+ * parsed or composed in its entirety according to the respective input or
+ * output parameters.
+ *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 #define JSON_F_PRETTY  1
@@ -63,34 +74,85 @@ int json_v_api(void);
 
 struct json;
 
-struct json *json_open(int, int *);
+struct json *json_open(int flags, int *error);
+/* Returns a new JSON object on success, with default parameters initialized
+ * to `flags'. On failure returns NULL, with the error code in `error'.
+ */
 
-void json_close(struct json *);
+void json_close(struct json *J);
+/* Destroys and deallocates the JSON object `J', iff `J' is not NULL. */
 
-int json_parse(struct json *, const void *, size_t);
+int json_parse(struct json *, const void *src, size_t len);
+/* Parses `len' bytes of the JSON document chunk `src'. Returns 0 on success
+ * or an error code on failure.
+ */
 
-int json_loadlstring(struct json *, const void *, size_t);
+int json_loadlstring(struct json *, const void *src, size_t len);
+/* Parses the JSON document `src' with length `len'. The document should be
+ * complete. Returns 0 on success or an error code on failure. */
 
-int json_loadstring(struct json *, const char *);
+int json_loadstring(struct json *, const char *src);
+/* Parses the JSON document `src', which should be a NUL-terminated string.
+ * The document should be complete. Returns 0 on success or an error code on
+ * failure.
+ */
 
-int json_loadfile(struct json *, FILE *);
+int json_loadfile(struct json *, FILE *file);
+/* Parses the JSON document `file'. The document should be complete. Returns
+ * 0 on success or an error code on failure.
+ */
 
-int json_loadpath(struct json *, const char *);
+int json_loadpath(struct json *, const char *path);
+/* Parses the JSON document `path'. The document should be complete. Returns
+ * 0 on success or an error code on failure.
+ */
 
-/** compose JSON into buffer (does not nul terminate) */
-size_t json_compose(struct json *, void *, size_t, int, int *);
+size_t json_compose(struct json *, void *dst, size_t lim, int flags, int *error);
+/* Composes the next document chunk of the current composition context,
+ * writing a maximum of `lim' bytes to `dst'. The chunk is NOT
+ * NUL-terminated. `flags' is XORd with the flags passed to json_open().
+ * Returns the count of bytes written on success, which may be 0 if the
+ * entire document has been composed and returned. On failure returns 0 and
+ * a non-0 error code through the optional parameter `error'.
+ *
+ * The caller should ensure that `error' is initialized to 0 if it wishes to
+ * differentiate between success or failure when a count of 0 is returned.
+ *
+ * To reset the composition context, see json_flush().
+ */
 
-/** reset composition state */
+int json_getc(struct json *, int flags, int *error);
+/* Composes the next character of the JSON document. `flags' is XORd with
+ * the flags passed to json_open(). On success returns the next character,
+ * or EOF if the end of the document has been reached. On failure return EOF
+ * and a non-0 error code through the optional parameter `error'.
+ *
+ * The caller should ensure that `error' is initialized to 0 if it
+ * wishes to diffentiate success or failure when EOF is returned.
+ *
+ * To reset the composition context, see json_flush().
+ */
+
 void json_flush(struct json *);
+/* Resets the composition context so that the next call to json_compose() or
+ * json_getc() returns the start of the JSON document.
+ */
 
-/** return next character in JSON composition */
-int json_getc(struct json *, int, int *);
+int json_printfile(struct json *, FILE *file, int flags);
+/* Composes the JSON document into `file', independent of the internal
+ * stateful composition context. On success returns 0, otherwise an error
+ * code.
+ */
 
-/** compose JSON into FILE using temporary composition context */
-int json_printfile(struct json *, FILE *, int);
-
-/** compose JSON into string using temporary composition context */
-size_t json_printstring(struct json *, void *, size_t, int, int *);
+size_t json_printstring(struct json *, void *dst, size_t lim, int flags, int *error);
+/* Composes the JSON document into the buffer `dst', independent of the
+ * internal stateful composition context. Only a maximum of `lim' bytes is
+ * written, and `dst' is ALWAYS NUL-terminated iff `lim' is greater than 0.
+ * `flags' is XORd with the flags passed to json_open(). On success returns
+ * the logical string length, which if greater than or equal to `lim'
+ * implies that the document has been truncated. On failure returns 0 and a
+ * non-0 error code through the optional parameter `error'.
+ */
 
 
 /*
@@ -170,9 +232,44 @@ int json_setarray(struct json *, const char *, ...);
 int json_setobject(struct json *, const char *, ...);
 
 
-
 /*
  * J S O N  E R R O R  I N T E R F A C E S
+ *
+ * JSON error conditions are returned using regular int objects. System
+ * errors are loaded from errno as soon as encountered, and the value
+ * returned through the JSON API. (DO NOT check errno, which may have been
+ * overwritten by subsequent error handling code.) JSON errors are negative
+ * and utilize a simple higher-order-byte namespacing protocol (as do all of
+ * my projects). This works because ISO C and POSIX guarantee that all
+ * system error codes are positive.
+ *
+ * When manipulating a JSON object with a long series of operations it may
+ * be desirable to use an exception model for handling error conditions.
+ * When a jmp_buf context is specified with json_setjmp(), error conditions
+ * will cause a _longjmp instead of a return to the caller.
+ *
+ * DO NOT FORGET to restore the previous setjmp context, because the library
+ * has no way of knowing if the presently set jmp_buf object is still valid.
+ * 
+ * The pattern should look something like:
+ *
+ * 	int foo(struct json *J) {
+ * 		struct jsonxs xs;
+ * 		int error;
+ *
+ * 		if ((error = json_enter(J, &xs)))
+ * 			goto error;
+ *
+ * 		...
+ *
+ * 		json_leave(J, &xs);
+ *
+ * 		return 0;
+ * 	error:
+ * 		json_leave(J, &xs);
+ *
+ * 		return error;
+ * 	}
  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
@@ -204,10 +301,20 @@ jmp_buf *json_setjmp(struct json *, jmp_buf *);
 #define json_leave(J, xs) \
 	json_setjmp((J), (xs)->otrap)
 
-int json_throw(struct json *, int);
+int json_throw(struct json *, int error);
+/* Calls _longjmp(3) with `error' iff a non-NULL jmp_buf context is
+ * currently set, otherwise returns `error'.
+ */
 
+int json_ifthrow(struct json *, int error);
+/* Calls _longjmp(3) with `error' iff a non-NULL jmp_buf context is
+ * currently set AND `error' is non-0. Otherwise, returns `error'.
+ */
 
-const char *json_strerror(int);
+const char *json_strerror(int error);
+/* Returns a string description of the error code `error'. System error
+ * codes are passed to strerror(3).
+ */
 
 
 #endif /* JSON_H */
