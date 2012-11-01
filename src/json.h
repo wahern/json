@@ -246,7 +246,8 @@ int json_setobject(struct json *, const char *, ...);
  * When manipulating a JSON object with a long series of operations it may
  * be desirable to use an exception model for handling error conditions.
  * When a jmp_buf context is specified with json_setjmp(), error conditions
- * will cause a _longjmp instead of a return to the caller.
+ * encountered by the tree manipulation routines will cause a _longjmp
+ * instead of a return to the caller.
  *
  * DO NOT FORGET to restore the previous setjmp context, because the library
  * has no way of knowing if the presently set jmp_buf object is still valid.
