@@ -3012,12 +3012,10 @@ int main(int argc, char **argv) {
 		} else if (!strcmp(cmd, "pop")) {
 			call_init(&fun, &ffi_type_void, (void *)&json_pop);
 			call_push(&fun, &ffi_type_pointer, J);
-			call_path(&fun, &argc, &argv);
 			call_exec(&fun);
 		} else if (!strcmp(cmd, "popall")) {
 			call_init(&fun, &ffi_type_void, (void *)&json_popall);
 			call_push(&fun, &ffi_type_pointer, J);
-			call_path(&fun, &argc, &argv);
 			call_exec(&fun);
 		} else if (!strcmp(cmd, "delete")) {
 			call_init(&fun, &ffi_type_void, (void *)&json_delete);

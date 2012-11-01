@@ -39,9 +39,9 @@
 #define JSON_VERSION JSON_V_REL
 #define JSON_VENDOR "william@25thandClement.com"
 
-#define JSON_V_REL 0x20121031
+#define JSON_V_REL 0x20121101
 #define JSON_V_ABI 0x20120512
-#define JSON_V_API 0x20121031
+#define JSON_V_API 0x20121101
 
 int json_version(void);
 const char *json_vendor(void);
@@ -214,6 +214,8 @@ double json_number(struct json *, const char *, ...);
 const char *json_string(struct json *J, const char *, ...);
 
 size_t json_length(struct json *J, const char *, ...);
+
+size_t json_count(struct json *J, const char *, ...);
 
 _Bool json_boolean(struct json *J, const char *, ...);
 
