@@ -268,6 +268,34 @@ static int string_putc(struct string **S, int ch) {
 } /* string_putc() */
 
 
+static int string_putw(struct string **S, int ch) {
+	char seq[4];
+	int len;
+
+	if (ch < 0x80)
+		return string_putc(S, ch);
+
+	if (ch < 0x800) {
+		seq[0] = 0xc0 | (0x1f & (ch >> 6));
+		seq[1] = 0x80 | (0x3f & ch);
+		len = 2;
+	} else if (ch < 0x1000) {
+		seq[0] = 0xe0 | (0x0f & (ch >> 12));
+		seq[1] = 0x80 | (0x3f & (ch >> 6));
+		seq[2] = 0x80 | (0x3f & ch);
+		len = 3;
+	} else {
+		seq[0] = 0xf0 | (0x07 & (ch >> 18));
+		seq[1] = 0x80 | (0x3f & (ch >> 12));
+		seq[2] = 0x80 | (0x3f & (ch >> 6));
+		seq[3] = 0x80 | (0x3f & ch);
+		len = 4;
+	}
+
+	return string_cats(S, seq, len);
+} /* string_putw() */
+
+
 /*
  * L E X E R  R O U T I N E S
  *
@@ -331,7 +359,7 @@ struct lexer {
 	struct string *string;
 	char *sp, *pe;
 
-	int i, code;
+	int i, code, high;
 
 	char number[64];
 
@@ -457,6 +485,19 @@ static int lex_pushnum(struct lexer *L) {
 } /* lex_pushnum() */
 
 
+static inline _Bool lex_ishigh(int code) {
+	return (code >= 0xD800 && code <= 0xDBFF);
+} /* lex_ishigh() */
+
+static inline _Bool lex_islow(int code) {
+	return (code >= 0xDC00 && code <= 0xDFFF);
+} /* lex_islow() */
+
+static int lex_frompair(int hi, int lo) {
+	return (hi << 10) + lo + (0x10000 - (0xD800 << 10) - 0xDC00);
+} /* lex_frompair() */
+
+
 #define resume() do { goto *((L->state)? L->state : &&start); } while (0)
 
 #define popchar() do { \
@@ -569,7 +610,7 @@ string:
 				L->i = 0;
 				L->code = 0;
 
-				while (L->i < 4) {
+				while (L->i++ < 4) {
 					popchar();
 
 					if (isdigit(ch)) {
@@ -585,8 +626,16 @@ string:
 						goto invalid;
 				} /* while() */
 
-				/* FIXME: Convert UTF-16 to UTF-8? */
-				if ((error = string_putc(&L->string, L->code)))
+				if (lex_ishigh(L->code)) {
+					L->high = L->code;
+
+					break;
+				} else if (lex_islow(L->code)) {
+					L->code = lex_frompair(L->high, L->code);
+					L->high = 0;
+				}
+
+				if ((error = string_putw(&L->string, L->code)))
 					goto error;
 
 				break;
@@ -1278,6 +1327,16 @@ static void print_init(struct printer *P, struct json_value *V, int flags) {
 } /* print_init() */
 
 
+static _Bool print_isgraph(unsigned char ch) {
+	return isgraph(ch);
+} /* print_isgraph() */
+
+
+static _Bool print_isascii(unsigned char ch) {
+	return !(0x80 & ch);
+} /* print_isascii() */
+
+
 #define RESUME() switch (P->sstate) { case 0: (void)0
 
 #define YIELD() do { \
@@ -1375,13 +1434,13 @@ string:
 	PUTCHAR('"');
 
 	while (P->buffer.p < P->buffer.pe) {
-		if (isgraph(*P->buffer.p)) {
+		if (print_isgraph(*P->buffer.p)) {
 			if (*P->buffer.p == '"' || *P->buffer.p == '/' || *P->buffer.p == '\\')
 				PUTCHAR('\\');
 			PUTCHAR(*P->buffer.p++);
 		} else if (*P->buffer.p == ' ') {
 			PUTCHAR(*P->buffer.p++);
-		} else {
+		} else if (print_isascii(*P->buffer.p)) {
 			PUTCHAR('\\');
 
 			if (*P->buffer.p == '\b')
@@ -1403,6 +1462,8 @@ string:
 			}
 
 			P->buffer.p++;
+		} else {
+			PUTCHAR(*P->buffer.p++);
 		}
 	} /* while() */
 
