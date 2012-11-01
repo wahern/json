@@ -797,7 +797,7 @@ static int object_cmp(struct node *a, struct node *b) {
 LLRB_GENERATE(object, node, rbe, object_cmp)
 
 
-static const char *value_strtype(enum json_values type) {
+NOTUSED static const char *value_strtype(enum json_values type) {
 	static const char *name[] = {
 		[JSON_V_ARRAY] = "array",
 		[JSON_V_OBJECT] = "object",
