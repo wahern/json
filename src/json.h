@@ -1,7 +1,7 @@
 /* ==========================================================================
  * json.h - Path Autovivifying JSON C Library
  * --------------------------------------------------------------------------
- * Copyright (c) 2012  William Ahern
+ * Copyright (c) 2012, 2013  William Ahern
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
@@ -39,9 +39,9 @@
 #define JSON_VERSION JSON_V_REL
 #define JSON_VENDOR "william@25thandClement.com"
 
-#define JSON_V_REL 0x20121101
+#define JSON_V_REL 0x20130218
 #define JSON_V_ABI 0x20120512
-#define JSON_V_API 0x20121101
+#define JSON_V_API 0x20130218
 
 int json_version(void);
 const char *json_vendor(void);
@@ -197,15 +197,52 @@ int json_v_setobject(struct json *, struct json_value *);
 
 
 /*
+ * J S O N  I T E R A T O R  I N T E R F A C E S
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+#define JSON_I_POSTORDER 0x1
+#define JSON_I_PREORDER  0x2
+
+#define JSON_I_INIT(...) { 0, { -1, -1 }, { 0, 0, 0 }, __VA_ARGS__ }
+#define json_i_new(...) (&(struct json_iterator)JSON_I_INIT)
+
+struct json_iterator {
+	int flags;
+
+	struct {
+		int min;
+		int max;
+	} depth;
+
+	struct {
+		struct json_value *value;
+		int order;
+		int depth;
+	} _;
+}; /* struct json_iterator */
+
+void json_v_start(struct json *, struct json_iterator *, struct json_value *);
+
+struct json_value *json_v_next(struct json *, struct json_iterator *);
+
+struct json_value *json_v_keyof(struct json *, struct json_value *);
+
+int json_v_indexof(struct json *, struct json_value *);
+
+
+/*
  * J S O N  P A T H  I N T E R F A C E S
  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-int json_push(struct json *J, const char *, ...);
+int json_push(struct json *, const char *, ...);
 
 void json_pop(struct json *);
 
 void json_popall(struct json *);
+
+struct json_value *json_top(struct json *);
 
 void json_delete(struct json *J, const char *, ...);
 

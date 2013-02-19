@@ -1,7 +1,7 @@
 /* ==========================================================================
  * json.c - Path Autovivifying JSON C Library
  * --------------------------------------------------------------------------
- * Copyright (c) 2012  William Ahern
+ * Copyright (c) 2012, 2013  William Ahern
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
@@ -23,6 +23,7 @@
  * USE OR OTHER DEALINGS IN THE SOFTWARE.
  * ==========================================================================
  */
+#include <limits.h>	/* INT_MAX */
 #include <stddef.h>	/* size_t offsetof */
 #include <stdarg.h>	/* va_list va_start va_end va_arg */
 #include <stdlib.h>	/* malloc(3) realloc(3) free(3) strtod(3) */
@@ -2316,6 +2317,52 @@ int json_v_setobject(struct json *J, struct json_value *V) {
 } /* json_v_setobject() */
 
 
+void json_v_start(struct json *J NOTUSED, struct json_iterator *I, struct json_value *V) {
+	memset(&I->_, 0, sizeof I->_);
+	I->_.value = V;
+
+	if (I->depth.max <= 0)
+		I->depth.max = INT_MAX;
+} /* json_v_start() */
+
+
+void json_v_skip(struct json *J NOTUSED, struct json_iterator *I) {
+	I->_.order = ORDER_POST;
+} /* json_v_skip() */
+
+
+struct json_value *json_v_next(struct json *J NOTUSED, struct json_iterator *I) {
+	struct json_value *V = I->_.value;
+
+	while ((V = value_next(V, &I->_.order, &I->_.depth))) {
+		if (value_iskey(V)) {
+			continue;
+		} else if (I->depth.min > I->_.depth || I->depth.max < I->_.depth) {
+			json_v_skip(J, I);
+
+			continue;
+		} else if ((I->flags & (JSON_I_POSTORDER|JSON_I_PREORDER))
+		       &&  !(I->flags & I->_.order)) {
+			continue;
+		}
+
+		break;
+	}
+
+	return NULL;
+} /* json_v_next() */
+
+
+struct json_value *json_v_keyof(struct json *J NOTUSED, struct json_value *V) {
+	return (V->node && V->node->parent->type == JSON_V_OBJECT)? V->node->key : NULL;
+} /* json_v_keyof() */
+
+
+int json_v_indexof(struct json *J NOTUSED, struct json_value *V) {
+	return (V->node && V->node->parent->type == JSON_V_ARRAY)? V->node->index : -1;
+} /* json_v_indexof() */
+
+
 /*
  * J S O N  P A T H  R O U T I N E S
  *
@@ -2546,6 +2593,11 @@ void json_popall(struct json *J) {
 		oroot->root = NULL;
 	}
 } /* json_popall() */
+
+
+struct json_value *json_top(struct json *J) {
+	return J->root;
+} /* json_top() */
 
 
 void json_delete(struct json *J, const char *fmt, ...) {
