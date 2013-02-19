@@ -280,7 +280,7 @@ static int string_putw(struct string **S, int ch) {
 		seq[0] = 0xc0 | (0x1f & (ch >> 6));
 		seq[1] = 0x80 | (0x3f & ch);
 		len = 2;
-	} else if (ch < 0x1000) {
+	} else if (ch < 0x10000) {
 		seq[0] = 0xe0 | (0x0f & (ch >> 12));
 		seq[1] = 0x80 | (0x3f & (ch >> 6));
 		seq[2] = 0x80 | (0x3f & ch);
