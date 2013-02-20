@@ -39,9 +39,9 @@
 #define JSON_VERSION JSON_V_REL
 #define JSON_VENDOR "william@25thandClement.com"
 
-#define JSON_V_REL 0x20130218
-#define JSON_V_ABI 0x20120512
-#define JSON_V_API 0x20130218
+#define JSON_V_REL 0x20130219
+#define JSON_V_ABI 0x20130219
+#define JSON_V_API 0x20130219
 
 int json_version(void);
 const char *json_vendor(void);
@@ -201,19 +201,15 @@ int json_v_setobject(struct json *, struct json_value *);
  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-#define JSON_I_POSTORDER 0x1
-#define JSON_I_PREORDER  0x2
+#define JSON_I_PREORDER  0x01
+#define JSON_I_POSTORDER 0x02
 
-#define JSON_I_INIT(...) { 0, { -1, -1 }, { 0, 0, 0 }, __VA_ARGS__ }
-#define json_i_new(...) (&(struct json_iterator)JSON_I_INIT)
+#define JSON_I_INIT(...) { 0, 0, 0, { 0, 0, 0 }, __VA_ARGS__ }
 
 struct json_iterator {
 	int flags;
-
-	struct {
-		int min;
-		int max;
-	} depth;
+	int level;
+	int depth;
 
 	struct {
 		struct json_value *value;
@@ -221,6 +217,8 @@ struct json_iterator {
 		int depth;
 	} _;
 }; /* struct json_iterator */
+
+void json_i_skip(struct json *, struct json_iterator *);
 
 void json_v_start(struct json *, struct json_iterator *, struct json_value *);
 

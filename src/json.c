@@ -2321,14 +2321,16 @@ void json_v_start(struct json *J NOTUSED, struct json_iterator *I, struct json_v
 	memset(&I->_, 0, sizeof I->_);
 	I->_.value = V;
 
-	if (I->depth.max <= 0)
-		I->depth.max = INT_MAX;
+	if (I->level < 0)
+		I->level = 0;
+	if (I->depth <= 0)
+		I->depth = INT_MAX;
 } /* json_v_start() */
 
 
-void json_v_skip(struct json *J NOTUSED, struct json_iterator *I) {
+void json_i_skip(struct json *J NOTUSED, struct json_iterator *I) {
 	I->_.order = ORDER_POST;
-} /* json_v_skip() */
+} /* json_i_skip() */
 
 
 struct json_value *json_v_next(struct json *J NOTUSED, struct json_iterator *I) {
@@ -2337,8 +2339,10 @@ struct json_value *json_v_next(struct json *J NOTUSED, struct json_iterator *I) 
 	while ((V = value_next(V, &I->_.order, &I->_.depth))) {
 		if (value_iskey(V)) {
 			continue;
-		} else if (I->depth.min > I->_.depth || I->depth.max < I->_.depth) {
-			json_v_skip(J, I);
+		} else if (I->level > I->_.depth) {
+			continue;
+		} else if (I->level + I->depth <= I->_.depth) {
+			json_i_skip(J, I);
 
 			continue;
 		} else if ((I->flags & (JSON_I_POSTORDER|JSON_I_PREORDER))
@@ -2349,7 +2353,7 @@ struct json_value *json_v_next(struct json *J NOTUSED, struct json_iterator *I) 
 		break;
 	}
 
-	return NULL;
+	return I->_.value = V;
 } /* json_v_next() */
 
 
