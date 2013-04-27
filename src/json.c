@@ -1883,11 +1883,11 @@ int json_ifthrow(struct json *J, int error) {
 } /* json_ifthrow() */
 
 
-static int json_parse_(struct json *J, const void *src, size_t len) {
+int json_parse(struct json *J, const void *src, size_t len) {
 	int error;
 
 	if (J->root)
-		return 0;
+		return json_throw(J, JSON_ENOMORE);
 
 	if ((error = parse(&J->parser, src, len)))
 		return error;
@@ -1896,19 +1896,6 @@ static int json_parse_(struct json *J, const void *src, size_t len) {
 	J->parser.root = NULL;
 
 	parse_destroy(&J->parser);
-
-	return 0;
-} /* json_parse_() */
-
-
-int json_parse(struct json *J, const void *src, size_t len) {
-	int error;
-
-	if (J->root)
-		return json_throw(J, JSON_ENOMORE);
-
-	if ((error = parse(&J->parser, src, len)))
-		return json_throw(J, error);
 
 	return 0;
 } /* json_parse() */
@@ -1920,7 +1907,7 @@ int json_loadlstring(struct json *J, const void *src, size_t len) {
 	if (J->root)
 		return json_throw(J, JSON_ENOMORE);
 
-	if ((error = json_parse_(J, src, len)))
+	if ((error = json_parse(J, src, len)))
 		return json_throw(J, (error == EAGAIN)? JSON_ETRUNCATED : error);
 
 	return 0;
@@ -1943,7 +1930,7 @@ int json_loadfile(struct json *J, FILE *fp) {
 	clearerr(fp);
 
 	while ((count = fread(buffer, 1, sizeof buffer, fp))) {
-		if (!(error = json_parse_(J, buffer, count)))
+		if (!(error = json_parse(J, buffer, count)))
 			return 0;
 		else if (error != EAGAIN)
 			return json_throw(J, error);
