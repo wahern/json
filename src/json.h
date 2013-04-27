@@ -39,7 +39,7 @@
 #define JSON_VERSION JSON_V_REL
 #define JSON_VENDOR "william@25thandClement.com"
 
-#define JSON_V_REL 0x20130219
+#define JSON_V_REL 0x20130426
 #define JSON_V_ABI 0x20130219
 #define JSON_V_API 0x20130219
 
