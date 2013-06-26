@@ -48,28 +48,24 @@
  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-#undef PASTE
-#define PASTE(x, y) x ## y
-#undef XPASTE
-#define XPASTE(x, y) PASTE(x, y)
+#define JSON_PASTE(x, y) x ## y
+#define JSON_XPASTE(x, y) JSON_PASTE(x, y)
 
-#undef MIN
-#define MIN(a, b) (((a) < (b))? (a) : (b))
-#define CMP(a, b) (((a) < (b))? -1 : ((a) > (b))? 1 : 0)
+#define JSON_MIN(a, b) (((a) < (b))? (a) : (b))
+#define JSON_CMP(a, b) (((a) < (b))? -1 : ((a) > (b))? 1 : 0)
 
-#undef countof
-#define countof(a) (sizeof (a) / sizeof *(a))
-#undef endof
-#define endof(a) (&(a)[countof(a)])
+#define json_countof(a) (sizeof (a) / sizeof *(a))
+#define json_endof(a) (&(a)[json_countof(a)])
 
+#undef SAY_
 #define SAY_(file, func, line, fmt, ...) \
 	fprintf(stderr, "%s:%d: " fmt "%s", __func__, __LINE__, __VA_ARGS__)
-
+#undef SAY
 #define SAY(...) SAY_(__FILE__, __func__, __LINE__, __VA_ARGS__, "\n")
-
+#undef HAI
 #define HAI SAY("hai")
 
-#define NOTUSED __attribute__((unused))
+#define JSON_NOTUSED __attribute__((unused))
 
 
 #if __linux
@@ -81,9 +77,8 @@ static inline size_t json_strlcpy(char *dst, const char *src, size_t len) {
 
 	return end - dst;
 } /* json_strlcpy() */
-
-#undef strlcpy
-#define strlcpy(...) json_strlcpy(__VA_ARGS__)
+#else
+#define json_strlcpy(...) strlcpy(__VA_ARGS__)
 #endif
 
 
@@ -326,7 +321,7 @@ struct token {
 }; /* struct token */
 
 
-NOTUSED static const char *lex_strtype(enum tokens type) {
+JSON_NOTUSED static const char *lex_strtype(enum tokens type) {
 	static const char *name[] = {
 		[T_BEGIN_ARRAY] = "begin-array",
 		[T_END_ARRAY] = "end-array",
@@ -502,8 +497,8 @@ static int lex_frompair(int hi, int lo) {
 #define resume() do { goto *((L->state)? L->state : &&start); } while (0)
 
 #define popchar() do { \
-	XPASTE(L, __LINE__): \
-	if (p >= pe) { L->state = &&XPASTE(L, __LINE__); return 0; } \
+	JSON_XPASTE(L, __LINE__): \
+	if (p >= pe) { L->state = &&JSON_XPASTE(L, __LINE__); return 0; } \
 	ch = *p++; \
 	L->cursor.pos++; \
 	L->cursor.col++; \
@@ -779,7 +774,7 @@ struct json_value {
 
 
 static int array_cmp(struct node *a, struct node *b) {
-	return CMP(a->index, b->index);
+	return JSON_CMP(a->index, b->index);
 } /* array_cmp() */
 
 LLRB_GENERATE(array, node, rbe, array_cmp)
@@ -789,16 +784,16 @@ LLRB_GENERATE(array, node, rbe, array_cmp)
 static int object_cmp(struct node *a, struct node *b) {
 	int cmp;
 
-	if ((cmp = strncmp(a->key->string->text, b->key->string->text, MIN(a->key->string->length, b->key->string->length))))
+	if ((cmp = strncmp(a->key->string->text, b->key->string->text, JSON_MIN(a->key->string->length, b->key->string->length))))
 		return cmp;
 
-	return CMP(a->key->string->length, b->key->string->length);
+	return JSON_CMP(a->key->string->length, b->key->string->length);
 } /* object_cmp() */
 
 LLRB_GENERATE(object, node, rbe, object_cmp)
 
 
-NOTUSED static const char *value_strtype(enum json_values type) {
+JSON_NOTUSED static const char *value_strtype(enum json_values type) {
 	static const char *name[] = {
 		[JSON_V_ARRAY] = "array",
 		[JSON_V_OBJECT] = "object",
@@ -1415,7 +1410,7 @@ static size_t print_simple(struct printer *P, void *dst, size_t lim, struct json
 		goto literal;
 	}
 	case JSON_V_BOOLEAN: {
-		size_t count = strlcpy(P->literal, ((V->boolean)? "true" : "false"), sizeof P->literal);
+		size_t count = json_strlcpy(P->literal, ((V->boolean)? "true" : "false"), sizeof P->literal);
 
 		P->buffer.p = P->literal;
 		P->buffer.pe = &P->literal[count];
@@ -1423,7 +1418,7 @@ static size_t print_simple(struct printer *P, void *dst, size_t lim, struct json
 		goto literal;
 	}
 	case JSON_V_NULL: {
-		size_t count = strlcpy(P->literal, "null", sizeof P->literal);
+		size_t count = json_strlcpy(P->literal, "null", sizeof P->literal);
 
 		P->buffer.p = P->literal;
 		P->buffer.pe = &P->literal[count];
@@ -1623,15 +1618,15 @@ static struct json_value *tovalue(struct token *T, int *error) {
 } while (0)
 
 #define YIELD() do { \
-	P->state = &&XPASTE(L, __LINE__); \
+	P->state = &&JSON_XPASTE(L, __LINE__); \
 	return EAGAIN; \
-	XPASTE(L, __LINE__): (void)0; \
+	JSON_XPASTE(L, __LINE__): (void)0; \
 } while (0)
 
 #define STOP(why) do { \
 	P->error = (why); \
-	P->state = &&XPASTE(L, __LINE__); \
-	XPASTE(L, __LINE__): return P->error; \
+	P->state = &&JSON_XPASTE(L, __LINE__); \
+	JSON_XPASTE(L, __LINE__): return P->error; \
 } while (0)
 
 #define POPTOKEN() do { \
@@ -1650,17 +1645,17 @@ static struct json_value *tovalue(struct token *T, int *error) {
 } while (0)
 
 #define PUSHARRAY(V) do { \
-	(V)->state = &&XPASTE(L, __LINE__); \
+	(V)->state = &&JSON_XPASTE(L, __LINE__); \
 	P->root = V; \
 	goto array; \
-	XPASTE(L, __LINE__): (void)0; \
+	JSON_XPASTE(L, __LINE__): (void)0; \
 } while (0)
 
 #define PUSHOBJECT(V) do { \
-	(V)->state = &&XPASTE(L, __LINE__); \
+	(V)->state = &&JSON_XPASTE(L, __LINE__); \
 	P->root = V; \
 	goto object; \
-	XPASTE(L, __LINE__): (void)0; \
+	JSON_XPASTE(L, __LINE__): (void)0; \
 } while (0)
 
 #define TOVALUE(T) do { \
@@ -2059,8 +2054,8 @@ JSON_PUBLIC size_t json_printstring(struct json *J, void *dst, size_t lim, int f
 
 	while ((count = print(&P, buffer, sizeof buffer))) {
 		if (p < pe) {
-			memcpy(p, buffer, MIN((size_t)(pe - p), count));
-			p += MIN((size_t)(pe - p), count);
+			memcpy(p, buffer, JSON_MIN((size_t)(pe - p), count));
+			p += JSON_MIN((size_t)(pe - p), count);
 		}
 
 		total += count;
@@ -2070,7 +2065,7 @@ JSON_PUBLIC size_t json_printstring(struct json *J, void *dst, size_t lim, int f
 		goto error;
 
 	if (lim)
-		((char *)dst)[MIN(lim - 1, total)] = '\0';
+		((char *)dst)[JSON_MIN(lim - 1, total)] = '\0';
 
 	return total;
 error:
@@ -2096,7 +2091,7 @@ JSON_PUBLIC struct json_value *json_root(struct json *J) {
 } /* json_root() */
 
 
-static int json_v_search_(struct json_value **V, struct json *J NOTUSED, struct json_value *O, int mode, const void *name, size_t len) {
+static int json_v_search_(struct json_value **V, struct json *J JSON_NOTUSED, struct json_value *O, int mode, const void *name, size_t len) {
 	struct json_value *K = NULL;
 	int error;
 
@@ -2146,7 +2141,7 @@ JSON_PUBLIC struct json_value *json_v_search(struct json *J, struct json_value *
 } /* json_v_search() */
 
 
-static int json_v_index_(struct json_value **V, struct json *J NOTUSED, struct json_value *A, int mode, int index) {
+static int json_v_index_(struct json_value **V, struct json *J JSON_NOTUSED, struct json_value *A, int mode, int index) {
 	int error;
 
 	*V = NULL;
@@ -2188,14 +2183,14 @@ JSON_PUBLIC struct json_value *json_v_index(struct json *J, struct json_value *O
 } /* json_v_index_() */
 
 
-JSON_PUBLIC int json_v_delete(struct json *J NOTUSED, struct json_value *V) {
+JSON_PUBLIC int json_v_delete(struct json *J JSON_NOTUSED, struct json_value *V) {
 	value_close(V, 1);
 
 	return 0;
 } /* json_v_delete() */
 
 
-JSON_PUBLIC int json_v_clear(struct json *J NOTUSED, struct json_value *V) {
+JSON_PUBLIC int json_v_clear(struct json *J JSON_NOTUSED, struct json_value *V) {
 	struct orphans indices, keys;
 
 	CIRCLEQ_INIT(&indices);
@@ -2304,7 +2299,7 @@ JSON_PUBLIC int json_v_setobject(struct json *J, struct json_value *V) {
 } /* json_v_setobject() */
 
 
-JSON_PUBLIC void json_v_start(struct json *J NOTUSED, struct json_iterator *I, struct json_value *V) {
+JSON_PUBLIC void json_v_start(struct json *J JSON_NOTUSED, struct json_iterator *I, struct json_value *V) {
 	memset(&I->_, 0, sizeof I->_);
 	I->_.value = V;
 
@@ -2315,12 +2310,12 @@ JSON_PUBLIC void json_v_start(struct json *J NOTUSED, struct json_iterator *I, s
 } /* json_v_start() */
 
 
-JSON_PUBLIC void json_i_skip(struct json *J NOTUSED, struct json_iterator *I) {
+JSON_PUBLIC void json_i_skip(struct json *J JSON_NOTUSED, struct json_iterator *I) {
 	I->_.order = ORDER_POST;
 } /* json_i_skip() */
 
 
-JSON_PUBLIC struct json_value *json_v_next(struct json *J NOTUSED, struct json_iterator *I) {
+JSON_PUBLIC struct json_value *json_v_next(struct json *J JSON_NOTUSED, struct json_iterator *I) {
 	struct json_value *V = I->_.value;
 
 	while ((V = value_next(V, &I->_.order, &I->_.depth))) {
@@ -2344,12 +2339,12 @@ JSON_PUBLIC struct json_value *json_v_next(struct json *J NOTUSED, struct json_i
 } /* json_v_next() */
 
 
-JSON_PUBLIC struct json_value *json_v_keyof(struct json *J NOTUSED, struct json_value *V) {
+JSON_PUBLIC struct json_value *json_v_keyof(struct json *J JSON_NOTUSED, struct json_value *V) {
 	return (V->node && V->node->parent->type == JSON_V_OBJECT)? V->node->key : NULL;
 } /* json_v_keyof() */
 
 
-JSON_PUBLIC int json_v_indexof(struct json *J NOTUSED, struct json_value *V) {
+JSON_PUBLIC int json_v_indexof(struct json *J JSON_NOTUSED, struct json_value *V) {
 	return (V->node && V->node->parent->type == JSON_V_ARRAY)? V->node->index : -1;
 } /* json_v_indexof() */
 
@@ -2406,7 +2401,7 @@ static void path_unget(struct json_path *path) {
 
 
 static int key_putc(struct json_path *path, int ch) {
-	if (path->kp < endof(path->key) - 1) {
+	if (path->kp < json_endof(path->key) - 1) {
 		*path->kp++ = ch;
 
 		return 0;
@@ -2418,8 +2413,8 @@ static int key_putc(struct json_path *path, int ch) {
 static int key_puts(struct json_path *path, const char *str) {
 	size_t len, lim;
 	
-	lim = endof(path->key) - path->kp;
-	len = strlcpy(path->kp, str, lim);
+	lim = json_endof(path->key) - path->kp;
+	len = json_strlcpy(path->kp, str, lim);
 
 	if (len >= lim)
 		return JSON_ESYNTAX;
@@ -2450,9 +2445,9 @@ static _Bool path_next(struct json_path *path, int *error) {
 		case -'#':
 			index = va_arg(path->ap, int);
 
-			len = snprintf(path->kp, endof(path->key) - path->kp, "%d", index);
+			len = snprintf(path->kp, json_endof(path->key) - path->kp, "%d", index);
 
-			if (len >= endof(path->key) - path->kp) {
+			if (len >= json_endof(path->key) - path->kp) {
 				*error = JSON_ESYNTAX;
 
 				goto error;
@@ -2824,7 +2819,7 @@ static void call_init(struct call *call, ffi_type *rtype, void *fun) {
 static void call_push(struct call *call, ffi_type *type, ...) {
 	va_list ap;
 
-	if (call->argc >= (int)countof(call->arg))
+	if (call->argc >= (int)json_countof(call->arg))
 		return;
 
 	va_start(ap, type);
@@ -2887,11 +2882,11 @@ static void call_path(struct call *call, int *argc, char ***argv) {
 
 
 static void call_exec(struct call *fun) {
-	void *arg[countof(fun->arg)];
+	void *arg[json_countof(fun->arg)];
 	ffi_cif cif;
 	int i;
 
-	for (i = 0; i < (int)countof(arg); i++)
+	for (i = 0; i < (int)json_countof(arg); i++)
 		arg[i] = &fun->arg[i];
 
 	if (FFI_OK != ffi_prep_cif(&cif, FFI_DEFAULT_ABI, fun->argc, fun->rtype, fun->type))
