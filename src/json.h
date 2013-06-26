@@ -32,6 +32,19 @@
 
 
 /*
+ * J S O N  C O M P I L A T I O N  P A R A M E T E R S
+ *
+ * To prevent the API from polluting a global application namespace, #define
+ * JSON_PUBLIC to `static'. Then #include json.c into the source unit using
+ * the library, rather than compiling json.c to a separate object file.
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+#ifndef JSON_PUBLIC
+#define JSON_PUBLIC
+#endif
+
+
+/*
  * J S O N  V E R S I O N  I N T E R F A C E S
  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
@@ -39,16 +52,16 @@
 #define JSON_VERSION JSON_V_REL
 #define JSON_VENDOR "william@25thandClement.com"
 
-#define JSON_V_REL 0x20130426
+#define JSON_V_REL 0x20130626
 #define JSON_V_ABI 0x20130219
 #define JSON_V_API 0x20130219
 
-int json_version(void);
-const char *json_vendor(void);
+JSON_PUBLIC int json_version(void);
+JSON_PUBLIC const char *json_vendor(void);
 
-int json_v_rel(void);
-int json_v_abi(void);
-int json_v_api(void);
+JSON_PUBLIC int json_v_rel(void);
+JSON_PUBLIC int json_v_abi(void);
+JSON_PUBLIC int json_v_api(void);
 
 
 /*
@@ -74,40 +87,40 @@ int json_v_api(void);
 
 struct json;
 
-struct json *json_open(int flags, int *error);
+JSON_PUBLIC struct json *json_open(int flags, int *error);
 /* Returns a new JSON object on success, with default parameters initialized
  * to `flags'. On failure returns NULL, with the error code in `error'.
  */
 
-void json_close(struct json *J);
+JSON_PUBLIC void json_close(struct json *J);
 /* Destroys and deallocates the JSON object `J', iff `J' is not NULL. */
 
-int json_parse(struct json *, const void *src, size_t len);
+JSON_PUBLIC int json_parse(struct json *, const void *src, size_t len);
 /* Parses `len' bytes of the JSON document chunk `src'. Returns 0 on success
  * or an error code on failure.
  */
 
-int json_loadlstring(struct json *, const void *src, size_t len);
+JSON_PUBLIC int json_loadlstring(struct json *, const void *src, size_t len);
 /* Parses the JSON document `src' with length `len'. The document should be
  * complete. Returns 0 on success or an error code on failure. */
 
-int json_loadstring(struct json *, const char *src);
+JSON_PUBLIC int json_loadstring(struct json *, const char *src);
 /* Parses the JSON document `src', which should be a NUL-terminated string.
  * The document should be complete. Returns 0 on success or an error code on
  * failure.
  */
 
-int json_loadfile(struct json *, FILE *file);
+JSON_PUBLIC int json_loadfile(struct json *, FILE *file);
 /* Parses the JSON document `file'. The document should be complete. Returns
  * 0 on success or an error code on failure.
  */
 
-int json_loadpath(struct json *, const char *path);
+JSON_PUBLIC int json_loadpath(struct json *, const char *path);
 /* Parses the JSON document `path'. The document should be complete. Returns
  * 0 on success or an error code on failure.
  */
 
-size_t json_compose(struct json *, void *dst, size_t lim, int flags, int *error);
+JSON_PUBLIC size_t json_compose(struct json *, void *dst, size_t lim, int flags, int *error);
 /* Composes the next document chunk of the current composition context,
  * writing a maximum of `lim' bytes to `dst'. The chunk is NOT
  * NUL-terminated. `flags' is XORd with the flags passed to json_open().
@@ -121,7 +134,7 @@ size_t json_compose(struct json *, void *dst, size_t lim, int flags, int *error)
  * To reset the composition context, see json_flush().
  */
 
-int json_getc(struct json *, int flags, int *error);
+JSON_PUBLIC int json_getc(struct json *, int flags, int *error);
 /* Composes the next character of the JSON document. `flags' is XORd with
  * the flags passed to json_open(). On success returns the next character,
  * or EOF if the end of the document has been reached. On failure return EOF
@@ -133,18 +146,18 @@ int json_getc(struct json *, int flags, int *error);
  * To reset the composition context, see json_flush().
  */
 
-void json_flush(struct json *);
+JSON_PUBLIC void json_flush(struct json *);
 /* Resets the composition context so that the next call to json_compose() or
  * json_getc() returns the start of the JSON document.
  */
 
-int json_printfile(struct json *, FILE *file, int flags);
+JSON_PUBLIC int json_printfile(struct json *, FILE *file, int flags);
 /* Composes the JSON document into `file', independent of the internal
  * stateful composition context. On success returns 0, otherwise an error
  * code.
  */
 
-size_t json_printstring(struct json *, void *dst, size_t lim, int flags, int *error);
+JSON_PUBLIC size_t json_printstring(struct json *, void *dst, size_t lim, int flags, int *error);
 /* Composes the JSON document into the buffer `dst', independent of the
  * internal stateful composition context. Only a maximum of `lim' bytes is
  * written, and `dst' is ALWAYS NUL-terminated iff `lim' is greater than 0.
@@ -163,37 +176,37 @@ size_t json_printstring(struct json *, void *dst, size_t lim, int flags, int *er
 #define JSON_M_AUTOVIV 0x01
 #define JSON_M_CONVERT 0x02
 
-struct json_value *json_v_search(struct json *, struct json_value *, int, const void *, size_t);
+JSON_PUBLIC struct json_value *json_v_search(struct json *, struct json_value *, int, const void *, size_t);
 
-struct json_value *json_v_index(struct json *, struct json_value *, int, int);
+JSON_PUBLIC struct json_value *json_v_index(struct json *, struct json_value *, int, int);
 
-int json_v_delete(struct json *, struct json_value *);
+JSON_PUBLIC int json_v_delete(struct json *, struct json_value *);
 
-int json_v_clear(struct json *, struct json_value *);
+JSON_PUBLIC int json_v_clear(struct json *, struct json_value *);
 
-double json_v_number(struct json *, struct json_value *);
+JSON_PUBLIC double json_v_number(struct json *, struct json_value *);
 
-const char *json_v_string(struct json *, struct json_value *);
+JSON_PUBLIC const char *json_v_string(struct json *, struct json_value *);
 
-size_t json_v_length(struct json *, struct json_value *);
+JSON_PUBLIC size_t json_v_length(struct json *, struct json_value *);
 
-size_t json_v_count(struct json *, struct json_value *);
+JSON_PUBLIC size_t json_v_count(struct json *, struct json_value *);
 
-_Bool json_v_boolean(struct json *, struct json_value *);
+JSON_PUBLIC _Bool json_v_boolean(struct json *, struct json_value *);
 
-int json_v_setnumber(struct json *, struct json_value *, double);
+JSON_PUBLIC int json_v_setnumber(struct json *, struct json_value *, double);
 
-int json_v_setlstring(struct json *, struct json_value *, const void *, size_t);
+JSON_PUBLIC int json_v_setlstring(struct json *, struct json_value *, const void *, size_t);
 
-int json_v_setstring(struct json *, struct json_value *, const void *);
+JSON_PUBLIC int json_v_setstring(struct json *, struct json_value *, const void *);
 
-int json_v_setboolean(struct json *, struct json_value *, _Bool);
+JSON_PUBLIC int json_v_setboolean(struct json *, struct json_value *, _Bool);
 
-int json_v_setnull(struct json *, struct json_value *);
+JSON_PUBLIC int json_v_setnull(struct json *, struct json_value *);
 
-int json_v_setarray(struct json *, struct json_value *);
+JSON_PUBLIC int json_v_setarray(struct json *, struct json_value *);
 
-int json_v_setobject(struct json *, struct json_value *);
+JSON_PUBLIC int json_v_setobject(struct json *, struct json_value *);
 
 
 /*
@@ -218,15 +231,15 @@ struct json_iterator {
 	} _;
 }; /* struct json_iterator */
 
-void json_i_skip(struct json *, struct json_iterator *);
+JSON_PUBLIC void json_i_skip(struct json *, struct json_iterator *);
 
-void json_v_start(struct json *, struct json_iterator *, struct json_value *);
+JSON_PUBLIC void json_v_start(struct json *, struct json_iterator *, struct json_value *);
 
-struct json_value *json_v_next(struct json *, struct json_iterator *);
+JSON_PUBLIC struct json_value *json_v_next(struct json *, struct json_iterator *);
 
-struct json_value *json_v_keyof(struct json *, struct json_value *);
+JSON_PUBLIC struct json_value *json_v_keyof(struct json *, struct json_value *);
 
-int json_v_indexof(struct json *, struct json_value *);
+JSON_PUBLIC int json_v_indexof(struct json *, struct json_value *);
 
 
 /*
@@ -234,39 +247,39 @@ int json_v_indexof(struct json *, struct json_value *);
  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-int json_push(struct json *, const char *, ...);
+JSON_PUBLIC int json_push(struct json *, const char *, ...);
 
-void json_pop(struct json *);
+JSON_PUBLIC void json_pop(struct json *);
 
-void json_popall(struct json *);
+JSON_PUBLIC void json_popall(struct json *);
 
-struct json_value *json_top(struct json *);
+JSON_PUBLIC struct json_value *json_top(struct json *);
 
-void json_delete(struct json *J, const char *, ...);
+JSON_PUBLIC void json_delete(struct json *J, const char *, ...);
 
-double json_number(struct json *, const char *, ...);
+JSON_PUBLIC double json_number(struct json *, const char *, ...);
 
-const char *json_string(struct json *J, const char *, ...);
+JSON_PUBLIC const char *json_string(struct json *J, const char *, ...);
 
-size_t json_length(struct json *J, const char *, ...);
+JSON_PUBLIC size_t json_length(struct json *J, const char *, ...);
 
-size_t json_count(struct json *J, const char *, ...);
+JSON_PUBLIC size_t json_count(struct json *J, const char *, ...);
 
-_Bool json_boolean(struct json *J, const char *, ...);
+JSON_PUBLIC _Bool json_boolean(struct json *J, const char *, ...);
 
-int json_setnumber(struct json *, double, const char *, ...);
+JSON_PUBLIC int json_setnumber(struct json *, double, const char *, ...);
 
-int json_setlstring(struct json *, const void *, size_t, const char *, ...);
+JSON_PUBLIC int json_setlstring(struct json *, const void *, size_t, const char *, ...);
 
-int json_setstring(struct json *, const void *, const char *, ...);
+JSON_PUBLIC int json_setstring(struct json *, const void *, const char *, ...);
 
-int json_setboolean(struct json *, _Bool, const char *, ...);
+JSON_PUBLIC int json_setboolean(struct json *, _Bool, const char *, ...);
 
-int json_setnull(struct json *, const char *, ...);
+JSON_PUBLIC int json_setnull(struct json *, const char *, ...);
 
-int json_setarray(struct json *, const char *, ...);
+JSON_PUBLIC int json_setarray(struct json *, const char *, ...);
 
-int json_setobject(struct json *, const char *, ...);
+JSON_PUBLIC int json_setobject(struct json *, const char *, ...);
 
 
 /*
@@ -329,7 +342,7 @@ struct jsonxs {
 	jmp_buf trap, *otrap;
 }; /* struct jsonxs */
 
-jmp_buf *json_setjmp(struct json *, jmp_buf *);
+JSON_PUBLIC jmp_buf *json_setjmp(struct json *, jmp_buf *);
 
 #define json_enter(J, xs) ({ \
 	(xs)->otrap = json_setjmp((J), &(xs)->trap); \
@@ -339,17 +352,17 @@ jmp_buf *json_setjmp(struct json *, jmp_buf *);
 #define json_leave(J, xs) \
 	json_setjmp((J), (xs)->otrap)
 
-int json_throw(struct json *, int error);
+JSON_PUBLIC int json_throw(struct json *, int error);
 /* Calls _longjmp(3) with `error' iff a non-NULL jmp_buf context is
  * currently set, otherwise returns `error'.
  */
 
-int json_ifthrow(struct json *, int error);
+JSON_PUBLIC int json_ifthrow(struct json *, int error);
 /* Calls _longjmp(3) with `error' iff a non-NULL jmp_buf context is
  * currently set AND `error' is non-0. Otherwise, returns `error'.
  */
 
-const char *json_strerror(int error);
+JSON_PUBLIC const char *json_strerror(int error);
 /* Returns a string description of the error code `error'. System error
  * codes are passed to strerror(3).
  */
