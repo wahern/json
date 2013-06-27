@@ -96,17 +96,15 @@ static inline void *json_make(size_t size, int *error) {
 	return p;
 } /* json_make() */
 
-#define make(...) json_make(__VA_ARGS__)
 
-
-static void *make0(size_t size, int *error) {
+static void *json_make0(size_t size, int *error) {
 	void *p;
 
-	if ((p = make(size, error)))
+	if ((p = json_make(size, error)))
 		memset(p, 0, size);
 
 	return p;
-} /* make0() */
+} /* json_make0() */
 
 
 JSON_PUBLIC const char *json_strerror(int error) {
@@ -401,7 +399,7 @@ static int lex_push(struct lexer *L, enum tokens type, ...) {
 	va_list ap;
 	int error;
 
-	if (!(T = make0(sizeof *T, &error)))
+	if (!(T = json_make0(sizeof *T, &error)))
 		return error;
 
 	T->type = type;
@@ -837,7 +835,7 @@ static int value_init(struct json_value *V, enum json_values type, struct token 
 static struct json_value *value_open(enum json_values type, struct token *T, int *error) {
 	struct json_value *V;
 
-	if (!(V = make(sizeof *V, error))
+	if (!(V = json_make(sizeof *V, error))
 	||  (*error = value_init(V, type, T)))
 		return 0;
 
@@ -851,7 +849,7 @@ static int array_push(struct json_value *A, struct json_value *V) {
 	struct node *N;
 	int error;
 
-	if (!(N = make(sizeof *N, &error)))
+	if (!(N = json_make(sizeof *N, &error)))
 		return error;
 
 	N->index = A->array.count++;
@@ -875,7 +873,7 @@ static int array_insert(struct json_value *A, int index, struct json_value *V) {
 	if (index < 0 || index >= A->array.count)
 		return array_push(A, V);
 
-	if (!(N = make(sizeof *N, &error)))
+	if (!(N = json_make(sizeof *N, &error)))
 		return error;
 
 	N->index = index;
@@ -920,7 +918,7 @@ static int object_insert(struct json_value *O, struct json_value *K, struct json
 	struct node *N, *prev;
 	int error;
 
-	if (!(N = make(sizeof *N, &error)))
+	if (!(N = json_make(sizeof *N, &error)))
 		return error;
 
 	N->key = K;
@@ -1809,6 +1807,19 @@ stop:
 	return 0;
 } /* parse() */
 
+#undef RESUME
+#undef YIELD
+#undef STOP
+#undef POPTOKEN
+#undef POPSTACK
+#undef PUSHARRAY
+#undef PUSHOBJECT
+#undef TOVALUE
+#undef TOKEY
+#undef INSERT2ARRAY
+#undef INSERT2OBJECT
+#undef LOOP
+
 
 /*
  * J S O N  C O R E  R O U T I N E S
@@ -1827,7 +1838,7 @@ struct json {
 JSON_PUBLIC struct json *json_open(int flags, int *error) {
 	struct json *J;
 
-	if (!(J = make0(sizeof *J, error)))
+	if (!(J = json_make0(sizeof *J, error)))
 		return NULL;
 
 	J->flags = flags;
@@ -3159,3 +3170,11 @@ static int lex_main(const char *file) {
 } /* lex_main() */
 
 #endif /* JSON_MAIN */
+
+
+/*
+ * Sanitize macro namespace.
+ */
+#undef SAY
+#undef HAI
+
