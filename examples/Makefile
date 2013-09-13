@@ -8,13 +8,13 @@ libjson.a: ../src/json.c
 	$(CC) $(CFLAGS) -c -o $@ $^ $(CPPFLAGS)
 
 splice: splice.c libjson.a
-	$(CC) $(CFLAGS) $^ -o $@ $(CPPFLAGS) -I../src
+	$(CC) $(CFLAGS) $^ -o $@ $(CPPFLAGS) -I../src -lm
 
 splice.cc: splice.c
 	ln -f $^ $@
 
 splice++: splice.cc libjson.a
-	$(CXX) $(CXXFLAGS) $^ -o $@ $(CPPFLAGS) -I../src
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(CPPFLAGS) -I../src -lm
 
 .PHONY: clean clean~
 
