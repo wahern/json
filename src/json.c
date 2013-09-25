@@ -2144,6 +2144,11 @@ JSON_PUBLIC struct json_value *json_root(struct json *J) {
 } /* json_root() */
 
 
+JSON_PUBLIC enum json_type json_v_type(struct json *J JSON_NOTUSED, struct json_value *V) {
+	return V->type;
+} /* json_v_type() */
+
+
 static int json_v_search_(struct json_value **V, struct json *J JSON_NOTUSED, struct json_value *O, int mode, const void *name, size_t len) {
 	struct json_value *K = NULL;
 	int error;

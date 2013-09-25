@@ -197,6 +197,10 @@ JSON_PUBLIC enum json_type json_itype(const char *);
 #define JSON_M_AUTOVIV 0x01
 #define JSON_M_CONVERT 0x02
 
+struct json_value;
+
+JSON_PUBLIC enum json_type json_v_type(struct json *, struct json_value *);
+
 JSON_PUBLIC struct json_value *json_v_search(struct json *, struct json_value *, int, const void *, size_t);
 
 JSON_PUBLIC struct json_value *json_v_index(struct json *, struct json_value *, int, int);

@@ -29,7 +29,9 @@ error:
 static void splice(const char *to_file, const char *to_path, const char *from_file, const char *from_path) {
 	struct json *to, *from;
 	struct jsonxs trap[2];
-	int error;
+	struct json_iterator I;
+	struct json_value *V, *K;
+	int index, error;
 
 	to = loadpath(to_file);
 	from = loadpath(from_file);
@@ -43,6 +45,58 @@ static void splice(const char *to_file, const char *to_path, const char *from_fi
 	json_push(to, to_path);
 	json_push(from, from_path);
 
+	memset(&I, 0, sizeof I);
+	I.depth = 64;
+	json_v_start(from, &I, json_top(from));
+
+	while ((V = json_v_next(from, &I))) {
+		if (I._.order & JSON_I_PREORDER) {
+			if (I._.depth > 0) {
+				if ((K = json_v_keyof(from, V))) {
+					json_push(to, "$", json_v_string(from, K));
+				} else {
+					index = json_v_indexof(from, V);
+					json_push(to, "[#]", index);
+				}
+			}
+
+			switch (json_v_type(from, V)) {
+			case JSON_T_ARRAY:
+				json_setarray(to, ".");
+
+				break;
+			case JSON_T_OBJECT:
+				json_setobject(to, ".");
+
+				break;
+			case JSON_T_NULL:
+				json_setnull(to, ".");
+				json_pop(to);
+
+				break;
+			case JSON_T_BOOLEAN:
+				json_setboolean(to, json_v_boolean(from, V), ".");
+				json_pop(to);
+
+				break;
+			case JSON_T_NUMBER:
+				json_setnumber(to, json_v_number(from, V), ".");
+				json_pop(to);
+
+				break;
+			case JSON_T_STRING:
+				json_setstring(to, json_v_string(from, V), ".");
+				json_pop(to);
+
+				break;
+			}
+		} else {
+			if (I._.depth > 0 && (json_v_type(from, V) == JSON_T_ARRAY || json_v_type(from, V) == JSON_T_OBJECT))
+				json_pop(to);
+		}
+	}
+
+	json_printfile(to, stdout, JSON_F_PRETTY);
 
 	json_leave(from, &trap[1]);
 	json_leave(to, &trap[0]);
