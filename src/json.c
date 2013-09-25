@@ -31,8 +31,6 @@
 
 #include <string.h>	/* memset(3) strncmp(3) strlen(3) */
 
-#include <ctype.h>	/* isdigit(3) isgraph(3) */
-
 #include <math.h>	/* HUGE_VAL modf(3) isnormal(3) */
 
 #include <errno.h>	/* errno ERANGE EOVERFLOW EINVAL */
@@ -56,9 +54,6 @@
 
 #define json_countof(a) (sizeof (a) / sizeof *(a))
 #define json_endof(a) (&(a)[json_countof(a)])
-
-#define json_bool_t int
-#define json_tobool(v) (!!(v))
 
 #undef SAY_
 #define SAY_(file, func, line, fmt, ...) \
@@ -110,73 +105,56 @@ static void *json_make0(size_t size, int *error) {
 } /* json_make0() */
 
 
-#if 0
 #define json_isctype(map, ch) \
-	json_tobool((map)[((ch) & 0xff) / 64] & (1ULL << ((ch) & 0xff)))
+	!!((map)[((ch) & 0xff) / 64] & (1ULL << ((ch) & 0xff)))
 
-static inline json_bool_t json_isdigit(unsigned char ch) {
+static inline _Bool json_isdigit(unsigned char ch) {
 	unsigned long long digit[4] = { 0x3ff000000000000ULL, 0, 0, 0 };
 
 	return json_isctype(digit, ch);
 } /* json_isdigit() */
 
 
-static inline json_bool_t json_isgraph(unsigned char ch) {
+static inline _Bool json_isgraph(unsigned char ch) {
 	unsigned long long graph[4] = { 0xfffffffe00000000ULL, 0x7fffffffffffffffULL, 0, 0 };
 
 	return json_isctype(graph, ch);
 } /* json_isgraph() */
 
 
-static inline json_bool_t json_isascii(unsigned char ch) {
+static inline _Bool json_isascii(unsigned char ch) {
 	return !(0x80 & ch);
 } /* json_isascii() */
-
-
-static inline json_bool_t json_isupper(unsigned char ch) {
-	unsigned long long upper[4] = { 0, 0x7fffffeULL, 0, 0 };
-
-	return json_isctype(upper, ch);
-} /* json_isupper() */
-
-
-static inline int json_tolower(unsigned char ch) {
-	return (json_isupper(ch))? ch + 32 : ch;
-} /* json_tolower() */
-#endif
 
 
 JSON_PUBLIC const char *json_strtype(enum json_type type) {
 	switch (type) {
 	default:
 		/* FALL THROUGH */
-	case JSON_T_NONE:
-		return "none";
+	case JSON_T_NULL:
+		return "null";
+	case JSON_T_BOOLEAN:
+		return "boolean";
+	case JSON_T_NUMBER:
+		return "number";
+	case JSON_T_STRING:
+		return "string";
 	case JSON_T_ARRAY:
 		return "array";
 	case JSON_T_OBJECT:
 		return "object";
-	case JSON_T_STRING:
-		return "string";
-	case JSON_T_NUMBER:
-		return "number";
-	case JSON_T_BOOLEAN:
-		return "boolean";
-	case JSON_T_NULL:
-		return "null";
 	} /* switch() */
 } /* json_strtype() */
 
 
 JSON_PUBLIC enum json_type json_itype(const char *type) {
 	static const char name[][8] =  {
-		[JSON_T_NONE]    = "none",
+		[JSON_T_NULL]    = "null",
+		[JSON_T_BOOLEAN] = "boolean",
+		[JSON_T_NUMBER]  = "number",
+		[JSON_T_STRING]  = "string",
 		[JSON_T_ARRAY]   = "array",
 		[JSON_T_OBJECT]  = "object",
-		[JSON_T_STRING]  = "string",
-		[JSON_T_NUMBER]  = "number",
-		[JSON_T_BOOLEAN] = "boolean",
-		[JSON_T_NULL]    = "null",
 	};
 	size_t i;
 
@@ -185,7 +163,7 @@ JSON_PUBLIC enum json_type json_itype(const char *type) {
 			return (enum json_type)i;
 	}
 
-	return JSON_T_NONE;
+	return JSON_T_NULL;
 } /* json_itype() */
 
 
@@ -402,31 +380,31 @@ struct token {
 
 
 static const enum json_type lex_typemap[] = {
-	[T_BEGIN_ARRAY]  = JSON_T_ARRAY,
-//	[T_END_ARRAY],
-	[T_BEGIN_OBJECT] = JSON_T_OBJECT,
-//	[T_END_OBJECT],
-//	[T_NAME_SEPARATOR],
-//	[T_VALUE_SEPARATOR],
-	[T_STRING]       = JSON_T_STRING,
-	[T_NUMBER]       = JSON_T_NUMBER,
-	[T_BOOLEAN]      = JSON_T_BOOLEAN,
-	[T_NULL]         = JSON_T_NULL,
+	[T_BEGIN_ARRAY]     = JSON_T_ARRAY,
+	[T_END_ARRAY]       = JSON_T_NULL,
+	[T_BEGIN_OBJECT]    = JSON_T_OBJECT,
+	[T_END_OBJECT]      = JSON_T_NULL,
+	[T_NAME_SEPARATOR]  = JSON_T_NULL ,
+	[T_VALUE_SEPARATOR] = JSON_T_NULL,
+	[T_STRING]          = JSON_T_STRING,
+	[T_NUMBER]          = JSON_T_NUMBER,
+	[T_BOOLEAN]         = JSON_T_BOOLEAN,
+	[T_NULL]            = JSON_T_NULL,
 }; /* lex_typemap[] */
 
 
 JSON_NOTUSED static const char *lex_strtype(enum tokens type) {
 	static const char name[][16] = {
-		[T_BEGIN_ARRAY] = "begin-array",
-		[T_END_ARRAY] = "end-array",
-		[T_BEGIN_OBJECT] = "begin-object",
-		[T_END_OBJECT] = "end-object",
-		[T_NAME_SEPARATOR] = "name-separator",
+		[T_BEGIN_ARRAY]     = "begin-array",
+		[T_END_ARRAY]       = "end-array",
+		[T_BEGIN_OBJECT]    = "begin-object",
+		[T_END_OBJECT]      = "end-object",
+		[T_NAME_SEPARATOR]  = "name-separator",
 		[T_VALUE_SEPARATOR] = "value-separator",
-		[T_STRING] = "string",
-		[T_NUMBER] = "number",
-		[T_BOOLEAN] = "boolean",
-		[T_NULL] = "null",
+		[T_STRING]          = "string",
+		[T_NUMBER]          = "number",
+		[T_BOOLEAN]         = "boolean",
+		[T_NULL]            = "null",
 	};
 
 	return name[type];
@@ -703,7 +681,7 @@ string:
 				while (L->i++ < 4) {
 					popchar();
 
-					if (isdigit(ch)) {
+					if (json_isdigit(ch)) {
 						L->code <<= 4;
 						L->code += ch - '0';
 					} else if (ch >= 'A' && ch <= 'F') {
@@ -791,7 +769,7 @@ false:
 
 	goto start;
 invalid:
-	if (isgraph(ch))
+	if (json_isgraph(ch))
 		fprintf(stderr, "invalid char (%c) at line %u, column %u\n", ch, L->cursor.row, L->cursor.col);
 	else
 		fprintf(stderr, "invalid char (0x%.2x) at line %u, column %u\n", ch, L->cursor.row, L->cursor.col);
@@ -831,14 +809,7 @@ struct node {
 
 
 struct json_value {
-	enum json_values {
-		JSON_V_ARRAY   = T_BEGIN_ARRAY,
-		JSON_V_OBJECT  = T_BEGIN_OBJECT,
-		JSON_V_STRING  = T_STRING,
-		JSON_V_NUMBER  = T_NUMBER,
-		JSON_V_BOOLEAN = T_BOOLEAN,
-		JSON_V_NULL    = T_NULL,
-	} type;
+	enum json_type type;
 
 	struct node *node;
 
@@ -887,37 +858,23 @@ static int object_cmp(struct node *a, struct node *b) {
 LLRB_GENERATE_STATIC(object, node, rbe, object_cmp)
 
 
-JSON_NOTUSED static const char *value_strtype(enum json_values type) {
-	static const char *name[] = {
-		[JSON_V_ARRAY] = "array",
-		[JSON_V_OBJECT] = "object",
-		[JSON_V_STRING] = "string",
-		[JSON_V_NUMBER] = "number",
-		[JSON_V_BOOLEAN] = "boolean",
-		[JSON_V_NULL] = "null",
-	};
-
-	return name[type];
-} /* value_strtype() */
-
-
-static int value_init(struct json_value *V, enum json_values type, struct token *T) {
+static int value_init(struct json_value *V, enum json_type type, struct token *T) {
 	memset(V, 0, sizeof *V);
 
 	V->type = type;
 
 	switch (type) {
-	case JSON_V_STRING:
+	case JSON_T_STRING:
 		if (T) {
 			string_move(&V->string, &T->string);
 		} else {
 			string_init(&V->string);
 		}
 		break;
-	case JSON_V_NUMBER:
+	case JSON_T_NUMBER:
 		V->number = (T)? T->number : 0.0;
 		break;
-	case JSON_V_BOOLEAN:
+	case JSON_T_BOOLEAN:
 		V->boolean = (T)? T->boolean : 0;
 		break;
 	default:
@@ -928,7 +885,7 @@ static int value_init(struct json_value *V, enum json_values type, struct token 
 } /* value_init() */
 
 
-static struct json_value *value_open(enum json_values type, struct token *T, int *error) {
+static struct json_value *value_open(enum json_type type, struct token *T, int *error) {
 	struct json_value *V;
 
 	if (!(V = json_make(sizeof *V, error))
@@ -1046,7 +1003,7 @@ static struct json_value *object_search(struct json_value *O, const void *name, 
 	struct json_value key;
 	struct node node, *result;
 
-	key.type = JSON_V_STRING;
+	key.type = JSON_T_STRING;
 	key.string = string_fake(name, len);
 	node.key = &key;
 
@@ -1101,19 +1058,19 @@ static void object_clear(struct json_value *V, struct orphans *keys) {
 
 static void value_clear(struct json_value *V, struct orphans *indices, struct orphans *keys) {
 	switch (V->type) {
-	case JSON_V_ARRAY:
+	case JSON_T_ARRAY:
 		array_clear(V, indices);
 		break;
-	case JSON_V_OBJECT:
+	case JSON_T_OBJECT:
 		object_clear(V, keys);
 		break;
-	case JSON_V_STRING:
+	case JSON_T_STRING:
 		string_reset(&V->string);
 		break;
-	case JSON_V_BOOLEAN:
+	case JSON_T_BOOLEAN:
 		V->boolean = 0;
 		break;
-	case JSON_V_NUMBER:
+	case JSON_T_NUMBER:
 		V->number = 0.0;
 		break;
 	default:
@@ -1123,7 +1080,7 @@ static void value_clear(struct json_value *V, struct orphans *indices, struct or
 
 
 static void node_remove(struct node *N, struct orphans *indices, struct orphans *keys) {
-	if (N->parent->type == JSON_V_ARRAY)
+	if (N->parent->type == JSON_T_ARRAY)
 		array_remove(N->parent, N, indices);
 	else
 		object_remove(N->parent, N, keys);
@@ -1133,7 +1090,7 @@ static void node_remove(struct node *N, struct orphans *indices, struct orphans 
 static void value_destroy(struct json_value *V, struct orphans *indices, struct orphans *keys) {
 	value_clear(V, indices, keys);
 
-	if (V->type == JSON_V_STRING)
+	if (V->type == JSON_T_STRING)
 		string_destroy(&V->string);
 } /* value_destroy() */
 
@@ -1189,21 +1146,21 @@ static void value_close(struct json_value *V, _Bool node) {
 
 
 static _Bool value_issimple(struct json_value *V) {
-	return V->type != JSON_V_ARRAY && V->type != JSON_V_OBJECT;
+	return V->type != JSON_T_ARRAY && V->type != JSON_T_OBJECT;
 } /* value_issimple() */
 
 
 static _Bool value_iskey(struct json_value *V) {
-	return (V->node && V->node->parent->type == JSON_V_OBJECT && V->node->key == V);
+	return (V->node && V->node->parent->type == JSON_T_OBJECT && V->node->key == V);
 } /* value_iskey() */
 
 
 static _Bool value_isvalue(struct json_value *V) {
-	return (V->node && V->node->parent->type == JSON_V_OBJECT && V->node->value == V);
+	return (V->node && V->node->parent->type == JSON_T_OBJECT && V->node->value == V);
 } /* value_isvalue() */
 
 
-static int value_convert(struct json_value *V, enum json_values type) {
+static int value_convert(struct json_value *V, enum json_type type) {
 	struct orphans indices, keys;
 	struct json_value *R;
 	struct node *N;
@@ -1234,25 +1191,25 @@ static int value_convert(struct json_value *V, enum json_values type) {
 
 
 static double value_number(struct json_value *V) {
-	return (V && V->type == JSON_V_NUMBER)? V->number : 0.0;
+	return (V && V->type == JSON_T_NUMBER)? V->number : 0.0;
 } /* value_number() */
 
 
 static const char *value_string(struct json_value *V) {
-	return (V && V->type == JSON_V_STRING)? V->string->text : "";
+	return (V && V->type == JSON_T_STRING)? V->string->text : "";
 } /* value_string() */
 
 
 static double value_length(struct json_value *V) {
-	return (V && V->type == JSON_V_STRING)? V->string->length : 0;
+	return (V && V->type == JSON_T_STRING)? V->string->length : 0;
 } /* value_length() */
 
 
 static double value_count(struct json_value *V) {
-	switch ((V)? V->type : JSON_V_NULL) {
-	case JSON_V_ARRAY:
+	switch ((V)? V->type : JSON_T_NULL) {
+	case JSON_T_ARRAY:
 		return V->array.count;
-	case JSON_V_OBJECT:
+	case JSON_T_OBJECT:
 		return V->object.count;
 	default:
 		return 0;
@@ -1264,15 +1221,15 @@ static _Bool value_boolean(struct json_value *V) {
 	if (!V)
 		return 0;
 
-	if (V->type == JSON_V_BOOLEAN)
+	if (V->type == JSON_T_BOOLEAN)
 		return V->boolean;
 
 	switch (V->type) {
-	case JSON_V_NUMBER:
+	case JSON_T_NUMBER:
 		return isnormal(V->number);
-	case JSON_V_ARRAY:
+	case JSON_T_ARRAY:
 		return !!V->array.count;
-	case JSON_V_OBJECT:
+	case JSON_T_OBJECT:
 		return !!V->object.count;
 	default:
 		return 0;
@@ -1316,10 +1273,10 @@ static struct json_value *value_root(struct json_value *top) {
 static struct json_value *value_descend(struct json_value *V) {
 	struct node *N;
 
-	if (V->type == JSON_V_ARRAY) {
+	if (V->type == JSON_T_ARRAY) {
 		if ((N = LLRB_MIN(array, &V->array.nodes)))
 			return N->value;
-	} else if (V->type == JSON_V_OBJECT) {
+	} else if (V->type == JSON_T_OBJECT) {
 		if ((N = LLRB_MIN(object, &V->object.nodes)))
 			return N->key;
 	}
@@ -1329,7 +1286,7 @@ static struct json_value *value_descend(struct json_value *V) {
 
 
 static struct node *node_next(struct node *N) {
-	if (N->parent->type == JSON_V_ARRAY)
+	if (N->parent->type == JSON_T_ARRAY)
 		return LLRB_NEXT(array, &N->parent->array.nodes, N);
 	else
 		return LLRB_NEXT(object, &N->parent->object.nodes, N);
@@ -1340,7 +1297,7 @@ static struct json_value *value_adjacent(struct json_value *V) {
 	struct node *N;
 
 	if (V->node && (N = node_next(V->node))) {
-		if (N->parent->type == JSON_V_ARRAY)
+		if (N->parent->type == JSON_T_ARRAY)
 			return N->value;
 		else
 			return N->key;
@@ -1361,7 +1318,7 @@ static struct json_value *value_next(struct json_value *V, int *order, int *dept
 		*depth = 0;
 
 		return V;
-	} else if ((*order & ORDER_PRE) && (V->type == JSON_V_ARRAY || V->type == JSON_V_OBJECT)) {
+	} else if ((*order & ORDER_PRE) && (V->type == JSON_T_ARRAY || V->type == JSON_T_OBJECT)) {
 		if ((nxt = value_descend(V))) {
 			++*depth;
 			return nxt;
@@ -1417,16 +1374,6 @@ static void print_init(struct printer *P, struct json_value *V, int flags) {
 } /* print_init() */
 
 
-static _Bool print_isgraph(unsigned char ch) {
-	return isgraph(ch);
-} /* print_isgraph() */
-
-
-static _Bool print_isascii(unsigned char ch) {
-	return !(0x80 & ch);
-} /* print_isascii() */
-
-
 #define RESUME() switch (P->sstate) { case 0: (void)0
 
 #define YIELD() do { \
@@ -1454,7 +1401,7 @@ static size_t print_simple(struct printer *P, void *dst, size_t lim, struct json
 	RESUME();
 
 	switch (V->type) {
-	case JSON_V_ARRAY:
+	case JSON_T_ARRAY:
 		if (order & ORDER_PRE)
 			P->literal[0] = '[';
 		else
@@ -1464,7 +1411,7 @@ static size_t print_simple(struct printer *P, void *dst, size_t lim, struct json
 		P->buffer.pe = &P->literal[1];
 
 		goto literal;
-	case JSON_V_OBJECT:
+	case JSON_T_OBJECT:
 		if (order & ORDER_PRE)
 			P->literal[0] = '{';
 		else
@@ -1474,12 +1421,12 @@ static size_t print_simple(struct printer *P, void *dst, size_t lim, struct json
 		P->buffer.pe = &P->literal[1];
 
 		goto literal;
-	case JSON_V_STRING:
+	case JSON_T_STRING:
 		P->buffer.p = V->string->text;
 		P->buffer.pe = &V->string->text[V->string->length];
 
 		goto string;
-	case JSON_V_NUMBER: {
+	case JSON_T_NUMBER: {
 		double i;
 		int count;
 
@@ -1503,7 +1450,7 @@ static size_t print_simple(struct printer *P, void *dst, size_t lim, struct json
 
 		goto literal;
 	}
-	case JSON_V_BOOLEAN: {
+	case JSON_T_BOOLEAN: {
 		size_t count = json_strlcpy(P->literal, ((V->boolean)? "true" : "false"), sizeof P->literal);
 
 		P->buffer.p = P->literal;
@@ -1511,7 +1458,7 @@ static size_t print_simple(struct printer *P, void *dst, size_t lim, struct json
 
 		goto literal;
 	}
-	case JSON_V_NULL: {
+	case JSON_T_NULL: {
 		size_t count = json_strlcpy(P->literal, "null", sizeof P->literal);
 
 		P->buffer.p = P->literal;
@@ -1524,13 +1471,13 @@ string:
 	PUTCHAR('"');
 
 	while (P->buffer.p < P->buffer.pe) {
-		if (print_isgraph(*P->buffer.p)) {
+		if (json_isgraph(*P->buffer.p)) {
 			if (*P->buffer.p == '"' || *P->buffer.p == '/' || *P->buffer.p == '\\')
 				PUTCHAR('\\');
 			PUTCHAR(*P->buffer.p++);
 		} else if (*P->buffer.p == ' ') {
 			PUTCHAR(*P->buffer.p++);
-		} else if (print_isascii(*P->buffer.p)) {
+		} else if (json_isascii(*P->buffer.p)) {
 			PUTCHAR('\\');
 
 			if (*P->buffer.p == '\b')
@@ -1701,8 +1648,6 @@ static void parse_destroy(struct parser *P) {
 
 
 static struct json_value *tovalue(struct token *T, int *error) {
-//	/* value types identical to relevant token types */
-//	return value_open((enum json_values)T->type, T, error);
 	return value_open(lex_typemap[T->type], T, error);
 } /* tovalue() */
 
@@ -1792,14 +1737,14 @@ start:
 
 	switch (T->type) {
 	case T_BEGIN_ARRAY:
-		if (!(P->root = value_open(JSON_V_ARRAY, T, &error)))
+		if (!(P->root = value_open(JSON_T_ARRAY, T, &error)))
 			STOP(error);
 
 		P->root->state = &&stop;
 
 		goto array;
 	case T_BEGIN_OBJECT:
-		if (!(P->root = value_open(JSON_V_OBJECT, T, &error)))
+		if (!(P->root = value_open(JSON_T_OBJECT, T, &error)))
 			STOP(error);
 
 		P->root->state = &&stop;
@@ -2205,24 +2150,24 @@ static int json_v_search_(struct json_value **V, struct json *J JSON_NOTUSED, st
 
 	*V = NULL;
 
-	if (O->type != JSON_V_OBJECT) {
+	if (O->type != JSON_T_OBJECT) {
 		if (!(mode & JSON_M_AUTOVIV) || !(mode & JSON_M_CONVERT))
 			return 0;
 
-		if ((error = value_convert(O, JSON_V_OBJECT)))
+		if ((error = value_convert(O, JSON_T_OBJECT)))
 			goto error;
 	}
 
 	if ((*V = object_search(O, name, len)) || !(mode & JSON_M_AUTOVIV))
 		return 0;
 
-	if (!(K = value_open(JSON_V_STRING, NULL, &error)))
+	if (!(K = value_open(JSON_T_STRING, NULL, &error)))
 		goto error;
 
 	if ((error = string_cats(&K->string, name, len)))
 		goto error;
 
-	if (!(*V = value_open(JSON_V_NULL, NULL, &error)))
+	if (!(*V = value_open(JSON_T_NULL, NULL, &error)))
 		goto error;
 
 	if ((error = object_insert(O, K, *V)))
@@ -2254,18 +2199,18 @@ static int json_v_index_(struct json_value **V, struct json *J JSON_NOTUSED, str
 
 	*V = NULL;
 
-	if (A->type != JSON_V_ARRAY) {
+	if (A->type != JSON_T_ARRAY) {
 		if (!(mode & JSON_M_AUTOVIV) || !(mode & JSON_M_CONVERT))
 			return 0;
 
-		if ((error = value_convert(A, JSON_V_ARRAY)))
+		if ((error = value_convert(A, JSON_T_ARRAY)))
 			goto error;
 	}
 
 	if ((*V = array_index(A, index)) || !(mode & JSON_M_AUTOVIV))
 		return 0;
 
-	if (!(*V = value_open(JSON_V_NULL, NULL, &error)))
+	if (!(*V = value_open(JSON_T_NULL, NULL, &error)))
 		goto error;
 
 	if ((error = array_insert(A, index, *V)))
@@ -2312,7 +2257,7 @@ JSON_PUBLIC int json_v_clear(struct json *J JSON_NOTUSED, struct json_value *V) 
 
 
 JSON_PUBLIC double json_v_number(struct json *J, struct json_value *V) {
-	if (V && V->type != JSON_V_NUMBER && (J->flags & JSON_F_STRONG))
+	if (V && V->type != JSON_T_NUMBER && (J->flags & JSON_F_STRONG))
 		json_throw(J, JSON_ETYPING);
 
 	return value_number(V);
@@ -2320,7 +2265,7 @@ JSON_PUBLIC double json_v_number(struct json *J, struct json_value *V) {
 
 
 JSON_PUBLIC const char *json_v_string(struct json *J, struct json_value *V) {
-	if (V && V->type != JSON_V_STRING && (J->flags & JSON_F_STRONG))
+	if (V && V->type != JSON_T_STRING && (J->flags & JSON_F_STRONG))
 		json_throw(J, JSON_ETYPING);
 
 	return value_string(V);
@@ -2328,7 +2273,7 @@ JSON_PUBLIC const char *json_v_string(struct json *J, struct json_value *V) {
 
 
 JSON_PUBLIC size_t json_v_length(struct json *J, struct json_value *V) {
-	if (V && V->type != JSON_V_STRING && (J->flags & JSON_F_STRONG))
+	if (V && V->type != JSON_T_STRING && (J->flags & JSON_F_STRONG))
 		json_throw(J, JSON_ETYPING);
 
 	return value_length(V);
@@ -2336,7 +2281,7 @@ JSON_PUBLIC size_t json_v_length(struct json *J, struct json_value *V) {
 
 
 JSON_PUBLIC size_t json_v_count(struct json *J, struct json_value *V) {
-	if (V && V->type != JSON_V_ARRAY && V->type != JSON_V_OBJECT && (J->flags & JSON_F_STRONG))
+	if (V && V->type != JSON_T_ARRAY && V->type != JSON_T_OBJECT && (J->flags & JSON_F_STRONG))
 		json_throw(J, JSON_ETYPING);
 
 	return value_count(V);
@@ -2344,7 +2289,7 @@ JSON_PUBLIC size_t json_v_count(struct json *J, struct json_value *V) {
 
 
 JSON_PUBLIC _Bool json_v_boolean(struct json *J, struct json_value *V) {
-	if (V && V->type != JSON_V_BOOLEAN && (J->flags & JSON_F_STRONG))
+	if (V && V->type != JSON_T_BOOLEAN && (J->flags & JSON_F_STRONG))
 		json_throw(J, JSON_ETYPING);
 
 	return value_boolean(V);
@@ -2354,7 +2299,7 @@ JSON_PUBLIC _Bool json_v_boolean(struct json *J, struct json_value *V) {
 JSON_PUBLIC int json_v_setnumber(struct json *J, struct json_value *V, double number) {
 	int error;
 
-	if ((error = value_convert(V, JSON_V_NUMBER)))
+	if ((error = value_convert(V, JSON_T_NUMBER)))
 		return json_throw(J, error);
 
 	V->number = number;
@@ -2366,7 +2311,7 @@ JSON_PUBLIC int json_v_setnumber(struct json *J, struct json_value *V, double nu
 JSON_PUBLIC int json_v_setlstring(struct json *J, struct json_value *V, const void *sp, size_t len) {
 	int error;
 
-	if ((error = value_convert(V, JSON_V_STRING)))
+	if ((error = value_convert(V, JSON_T_STRING)))
 		return json_throw(J, error);
 
 	string_reset(&V->string);
@@ -2383,7 +2328,7 @@ JSON_PUBLIC int json_v_setstring(struct json *J, struct json_value *V, const voi
 JSON_PUBLIC int json_v_setboolean(struct json *J, struct json_value *V, _Bool boolean) {
 	int error;
 
-	if ((error = value_convert(V, JSON_V_BOOLEAN)))
+	if ((error = value_convert(V, JSON_T_BOOLEAN)))
 		return json_throw(J, error);
 
 	V->boolean = boolean;
@@ -2393,17 +2338,17 @@ JSON_PUBLIC int json_v_setboolean(struct json *J, struct json_value *V, _Bool bo
 
 
 JSON_PUBLIC int json_v_setnull(struct json *J, struct json_value *V) {
-	return json_ifthrow(J, value_convert(V, JSON_V_NULL));
+	return json_ifthrow(J, value_convert(V, JSON_T_NULL));
 } /* json_v_setnull() */
 
 
 JSON_PUBLIC int json_v_setarray(struct json *J, struct json_value *V) {
-	return json_ifthrow(J, value_convert(V, JSON_V_ARRAY));
+	return json_ifthrow(J, value_convert(V, JSON_T_ARRAY));
 } /* json_v_setarray() */
 
 
 JSON_PUBLIC int json_v_setobject(struct json *J, struct json_value *V) {
-	return json_ifthrow(J, value_convert(V, JSON_V_OBJECT));
+	return json_ifthrow(J, value_convert(V, JSON_T_OBJECT));
 } /* json_v_setobject() */
 
 
@@ -2448,12 +2393,12 @@ JSON_PUBLIC struct json_value *json_v_next(struct json *J JSON_NOTUSED, struct j
 
 
 JSON_PUBLIC struct json_value *json_v_keyof(struct json *J JSON_NOTUSED, struct json_value *V) {
-	return (V->node && V->node->parent->type == JSON_V_OBJECT)? V->node->key : NULL;
+	return (V->node && V->node->parent->type == JSON_T_OBJECT)? V->node->key : NULL;
 } /* json_v_keyof() */
 
 
 JSON_PUBLIC int json_v_indexof(struct json *J JSON_NOTUSED, struct json_value *V) {
-	return (V->node && V->node->parent->type == JSON_V_ARRAY)? V->node->index : -1;
+	return (V->node && V->node->parent->type == JSON_T_ARRAY)? V->node->index : -1;
 } /* json_v_indexof() */
 
 
@@ -2585,7 +2530,7 @@ static _Bool path_next(struct json_path *path, int *error) {
 	if (ch)	
 		path_unget(path);
 
-	path->type = JSON_V_OBJECT;
+	path->type = JSON_T_OBJECT;
 	*path->kp = '\0';
 	path->len = path->kp - path->key;
 
@@ -2603,12 +2548,12 @@ array:
 	} else if (ch == '-') {
 		sign = -1;
 		goto index;
-	} else if (isdigit(ch)) {
+	} else if (json_isdigit(ch)) {
 index:
 		do {
 			index *= 10;
 			index += ch - '0';
-		} while ((ch = path_popc(path)) > 0 && isdigit(ch));
+		} while ((ch = path_popc(path)) > 0 && json_isdigit(ch));
 	} else {
 		*error = JSON_ESYNTAX;
 
@@ -2621,7 +2566,7 @@ index:
 		goto error;
 	}
 
-	path->type = JSON_V_ARRAY;
+	path->type = JSON_T_ARRAY;
 	path->index = sign * index;
 
 	return 1;
@@ -2636,14 +2581,14 @@ static int path_exec(struct json *J, struct json_path *path, int mode) {
 	int error = 0;
 
 	if (!J->root && (mode & JSON_M_AUTOVIV)) {
-		if (!(J->root = value_open(JSON_V_NULL, NULL, &error)))
+		if (!(J->root = value_open(JSON_T_NULL, NULL, &error)))
 			return error;
 	}
 
 	path->value = J->root;
 
 	while (path->value && path_next(path, &error)) {
-		if (path->type == JSON_V_OBJECT)
+		if (path->type == JSON_T_OBJECT)
 			error = json_v_search_(&path->value, J, path->value, mode, path->key, path->len);
 		else
 			error = json_v_index_(&path->value, J, path->value, mode, path->index);
@@ -2716,8 +2661,21 @@ JSON_PUBLIC enum json_type json_type(struct json *J, const char *fmt, ...) {
 	if ((error = path_exec(J, &path, 0)))
 		json_throw(J, error);
 
-	return (path.value)? path.value->type : JSON_V_NULL;
+	return (path.value)? path.value->type : JSON_T_NULL;
 } /* json_type() */
+
+
+JSON_PUBLIC _Bool json_exists(struct json *J, const char *fmt, ...) {
+	struct json_path path;
+	int error;
+
+	path_init(&path, fmt);
+
+	if ((error = path_exec(J, &path, 0)))
+		json_throw(J, error);
+
+	return (path.value)? 1 : 0;
+} /* json_exists() */
 
 
 JSON_PUBLIC double json_number(struct json *J, const char *fmt, ...) {
@@ -3119,7 +3077,13 @@ int main(int argc, char **argv) {
 			call_push(&fun, &ffi_type_pointer, J);
 			call_path(&fun, &argc, &argv);
 			call_exec(&fun);
-			puts(value_strtype(fun.rval.i));
+			puts(json_strtype(fun.rval.i));
+		} else if (!strcmp(cmd, "exists")) {
+			call_init(&fun, &ffi_type_schar, (void *)&json_exists);
+			call_push(&fun, &ffi_type_pointer, J);
+			call_path(&fun, &argc, &argv);
+			call_exec(&fun);
+			printf("%s\n", (fun.rval.c)? "yes" : "no");
 		} else if (!strcmp(cmd, "number")) {
 			call_init(&fun, &ffi_type_double, (void *)&json_number);
 			call_push(&fun, &ffi_type_pointer, J);

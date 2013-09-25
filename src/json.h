@@ -54,7 +54,7 @@
 
 #define JSON_V_REL 0x20130925
 #define JSON_V_ABI 0x20130925
-#define JSON_V_API 0x20130219
+#define JSON_V_API 0x20130925
 
 JSON_PUBLIC int json_version(void);
 JSON_PUBLIC const char *json_vendor(void);
@@ -175,13 +175,12 @@ JSON_PUBLIC size_t json_printstring(struct json *, void *dst, size_t lim, int fl
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 enum json_type {
-	JSON_T_NONE,
+	JSON_T_NULL,
+	JSON_T_BOOLEAN,
+	JSON_T_NUMBER,
+	JSON_T_STRING,
 	JSON_T_ARRAY,
 	JSON_T_OBJECT,
-	JSON_T_STRING,
-	JSON_T_NUMBER,
-	JSON_T_BOOLEAN,
-	JSON_T_NULL,
 }; /* enum json_type */
 
 
@@ -276,6 +275,8 @@ JSON_PUBLIC void json_pop(struct json *);
 JSON_PUBLIC void json_popall(struct json *);
 
 JSON_PUBLIC enum json_type json_type(struct json *, const char *, ...);
+
+JSON_PUBLIC _Bool json_exists(struct json *, const char *, ...);
 
 JSON_PUBLIC struct json_value *json_top(struct json *);
 
