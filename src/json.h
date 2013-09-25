@@ -217,7 +217,7 @@ JSON_PUBLIC _Bool json_v_boolean(struct json *, struct json_value *);
 
 JSON_PUBLIC int json_v_setnumber(struct json *, struct json_value *, double);
 
-JSON_PUBLIC int json_v_setlstring(struct json *, struct json_value *, const void *, size_t);
+JSON_PUBLIC int json_v_setbuffer(struct json *, struct json_value *, const void *, size_t);
 
 JSON_PUBLIC int json_v_setstring(struct json *, struct json_value *, const void *);
 
@@ -294,7 +294,7 @@ JSON_PUBLIC _Bool json_boolean(struct json *J, const char *, ...);
 
 JSON_PUBLIC int json_setnumber(struct json *, double, const char *, ...);
 
-JSON_PUBLIC int json_setlstring(struct json *, const void *, size_t, const char *, ...);
+JSON_PUBLIC int json_setbuffer(struct json *, const void *, size_t, const char *, ...);
 
 JSON_PUBLIC int json_setstring(struct json *, const void *, const char *, ...);
 

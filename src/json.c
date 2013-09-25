@@ -2308,7 +2308,7 @@ JSON_PUBLIC int json_v_setnumber(struct json *J, struct json_value *V, double nu
 } /* json_v_setnumber() */
 
 
-JSON_PUBLIC int json_v_setlstring(struct json *J, struct json_value *V, const void *sp, size_t len) {
+JSON_PUBLIC int json_v_setbuffer(struct json *J, struct json_value *V, const void *sp, size_t len) {
 	int error;
 
 	if ((error = value_convert(V, JSON_T_STRING)))
@@ -2317,11 +2317,11 @@ JSON_PUBLIC int json_v_setlstring(struct json *J, struct json_value *V, const vo
 	string_reset(&V->string);
 
 	return json_ifthrow(J, string_cats(&V->string, sp, len));
-} /* json_v_setlstring() */
+} /* json_v_setbuffer() */
 
 
 JSON_PUBLIC int json_v_setstring(struct json *J, struct json_value *V, const void *sp) {
-	return json_v_setlstring(J, V, sp, json_strlen(sp));
+	return json_v_setbuffer(J, V, sp, json_strlen(sp));
 } /* json_v_setstring() */
 
 
@@ -2756,7 +2756,7 @@ JSON_PUBLIC int json_setnumber(struct json *J, double number, const char *fmt, .
 } /* json_setnumber() */
 
 
-JSON_PUBLIC int json_setlstring(struct json *J, const void *src, size_t len, const char *fmt, ...) {
+JSON_PUBLIC int json_setbuffer(struct json *J, const void *src, size_t len, const char *fmt, ...) {
 	struct json_path path;
 	int error;
 
@@ -2765,8 +2765,8 @@ JSON_PUBLIC int json_setlstring(struct json *J, const void *src, size_t len, con
 	if ((error = path_exec(J, &path, JSON_M_AUTOVIV|JSON_M_CONVERT)))
 		return json_throw(J, error);
 
-	return json_v_setlstring(J, path.value, src, len);
-} /* json_setlstring() */
+	return json_v_setbuffer(J, path.value, src, len);
+} /* json_setbuffer() */
 
 
 JSON_PUBLIC int json_setstring(struct json *J, const void *src, const char *fmt, ...) {
@@ -3142,7 +3142,7 @@ int main(int argc, char **argv) {
 			call_path(&fun, &argc, &argv);
 			call_exec(&fun);
 		} else if (!strcmp(cmd, "setstring")) {
-			call_init(&fun, &ffi_type_sint, (void *)&json_setlstring);
+			call_init(&fun, &ffi_type_sint, (void *)&json_setbuffer);
 			call_push(&fun, &ffi_type_pointer, J);
 			if (!argc)
 				errx(1, "setstring: missing argument");
