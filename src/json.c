@@ -57,6 +57,9 @@
 #define json_countof(a) (sizeof (a) / sizeof *(a))
 #define json_endof(a) (&(a)[json_countof(a)])
 
+#define json_bool_t int
+#define json_tobool(v) (!!(v))
+
 #undef SAY_
 #define SAY_(file, func, line, fmt, ...) \
 	fprintf(stderr, "%s:%d: " fmt "%s", __func__, __LINE__, __VA_ARGS__)
@@ -105,6 +108,85 @@ static void *json_make0(size_t size, int *error) {
 
 	return p;
 } /* json_make0() */
+
+
+#if 0
+#define json_isctype(map, ch) \
+	json_tobool((map)[((ch) & 0xff) / 64] & (1ULL << ((ch) & 0xff)))
+
+static inline json_bool_t json_isdigit(unsigned char ch) {
+	unsigned long long digit[4] = { 0x3ff000000000000ULL, 0, 0, 0 };
+
+	return json_isctype(digit, ch);
+} /* json_isdigit() */
+
+
+static inline json_bool_t json_isgraph(unsigned char ch) {
+	unsigned long long graph[4] = { 0xfffffffe00000000ULL, 0x7fffffffffffffffULL, 0, 0 };
+
+	return json_isctype(graph, ch);
+} /* json_isgraph() */
+
+
+static inline json_bool_t json_isascii(unsigned char ch) {
+	return !(0x80 & ch);
+} /* json_isascii() */
+
+
+static inline json_bool_t json_isupper(unsigned char ch) {
+	unsigned long long upper[4] = { 0, 0x7fffffeULL, 0, 0 };
+
+	return json_isctype(upper, ch);
+} /* json_isupper() */
+
+
+static inline int json_tolower(unsigned char ch) {
+	return (json_isupper(ch))? ch + 32 : ch;
+} /* json_tolower() */
+#endif
+
+
+JSON_PUBLIC const char *json_strtype(enum json_type type) {
+	switch (type) {
+	default:
+		/* FALL THROUGH */
+	case JSON_T_NONE:
+		return "none";
+	case JSON_T_ARRAY:
+		return "array";
+	case JSON_T_OBJECT:
+		return "object";
+	case JSON_T_STRING:
+		return "string";
+	case JSON_T_NUMBER:
+		return "number";
+	case JSON_T_BOOLEAN:
+		return "boolean";
+	case JSON_T_NULL:
+		return "null";
+	} /* switch() */
+} /* json_strtype() */
+
+
+JSON_PUBLIC enum json_type json_itype(const char *type) {
+	static const char name[][8] =  {
+		[JSON_T_NONE]    = "none",
+		[JSON_T_ARRAY]   = "array",
+		[JSON_T_OBJECT]  = "object",
+		[JSON_T_STRING]  = "string",
+		[JSON_T_NUMBER]  = "number",
+		[JSON_T_BOOLEAN] = "boolean",
+		[JSON_T_NULL]    = "null",
+	};
+	size_t i;
+
+	for (i = 0; i < json_countof(name); i++) {
+		if (!strcmp(type, name[i]))
+			return (enum json_type)i;
+	}
+
+	return JSON_T_NONE;
+} /* json_itype() */
 
 
 JSON_PUBLIC const char *json_strerror(int error) {
@@ -319,8 +401,22 @@ struct token {
 }; /* struct token */
 
 
+static const enum json_type lex_typemap[] = {
+	[T_BEGIN_ARRAY]  = JSON_T_ARRAY,
+//	[T_END_ARRAY],
+	[T_BEGIN_OBJECT] = JSON_T_OBJECT,
+//	[T_END_OBJECT],
+//	[T_NAME_SEPARATOR],
+//	[T_VALUE_SEPARATOR],
+	[T_STRING]       = JSON_T_STRING,
+	[T_NUMBER]       = JSON_T_NUMBER,
+	[T_BOOLEAN]      = JSON_T_BOOLEAN,
+	[T_NULL]         = JSON_T_NULL,
+}; /* lex_typemap[] */
+
+
 JSON_NOTUSED static const char *lex_strtype(enum tokens type) {
-	static const char *name[] = {
+	static const char name[][16] = {
 		[T_BEGIN_ARRAY] = "begin-array",
 		[T_END_ARRAY] = "end-array",
 		[T_BEGIN_OBJECT] = "begin-object",
@@ -1605,8 +1701,9 @@ static void parse_destroy(struct parser *P) {
 
 
 static struct json_value *tovalue(struct token *T, int *error) {
-	/* value types identical to relevant token types */
-	return value_open((enum json_values)T->type, T, error);
+//	/* value types identical to relevant token types */
+//	return value_open((enum json_values)T->type, T, error);
+	return value_open(lex_typemap[T->type], T, error);
 } /* tovalue() */
 
 
@@ -2610,7 +2707,7 @@ JSON_PUBLIC void json_delete(struct json *J, const char *fmt, ...) {
 } /* json_delete() */
 
 
-JSON_PUBLIC int json_type(struct json *J, const char *fmt, ...) {
+JSON_PUBLIC enum json_type json_type(struct json *J, const char *fmt, ...) {
 	struct json_path path;
 	int error;
 

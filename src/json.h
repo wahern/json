@@ -168,6 +168,28 @@ JSON_PUBLIC size_t json_printstring(struct json *, void *dst, size_t lim, int fl
  */
 
 
+
+/*
+ * J S O N  T Y P E  I N T E R F A C E S
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+enum json_type {
+	JSON_T_NONE,
+	JSON_T_ARRAY,
+	JSON_T_OBJECT,
+	JSON_T_STRING,
+	JSON_T_NUMBER,
+	JSON_T_BOOLEAN,
+	JSON_T_NULL,
+}; /* enum json_type */
+
+
+JSON_PUBLIC const char *json_strtype(enum json_type);
+
+JSON_PUBLIC enum json_type json_itype(const char *);
+
+
 /*
  * J S O N  V A L U E  I N T E R F A C E S
  *
@@ -252,6 +274,8 @@ JSON_PUBLIC int json_push(struct json *, const char *, ...);
 JSON_PUBLIC void json_pop(struct json *);
 
 JSON_PUBLIC void json_popall(struct json *);
+
+JSON_PUBLIC enum json_type json_type(struct json *, const char *, ...);
 
 JSON_PUBLIC struct json_value *json_top(struct json *);
 
