@@ -775,7 +775,7 @@ static int array_cmp(struct node *a, struct node *b) {
 	return JSON_CMP(a->index, b->index);
 } /* array_cmp() */
 
-LLRB_GENERATE(array, node, rbe, array_cmp)
+LLRB_GENERATE_STATIC(array, node, rbe, array_cmp)
 
 
 /* NOTE: All keys must be strings per RFC 4627. */
@@ -788,7 +788,7 @@ static int object_cmp(struct node *a, struct node *b) {
 	return JSON_CMP(a->key->string->length, b->key->string->length);
 } /* object_cmp() */
 
-LLRB_GENERATE(object, node, rbe, object_cmp)
+LLRB_GENERATE_STATIC(object, node, rbe, object_cmp)
 
 
 JSON_NOTUSED static const char *value_strtype(enum json_values type) {

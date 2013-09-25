@@ -52,8 +52,8 @@
 #define JSON_VERSION JSON_V_REL
 #define JSON_VENDOR "william@25thandClement.com"
 
-#define JSON_V_REL 0x20130626
-#define JSON_V_ABI 0x20130219
+#define JSON_V_REL 0x20130925
+#define JSON_V_ABI 0x20130925
 #define JSON_V_API 0x20130219
 
 JSON_PUBLIC int json_version(void);
