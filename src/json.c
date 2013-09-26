@@ -1371,6 +1371,11 @@ struct printer {
 }; /* struct printer */
 
 
+static struct json_value *print_root(struct json_value *root, int flags) {
+	return (flags & JSON_F_PARTIAL)? root : value_root(root);
+} /* print_root() */
+
+
 static void print_init(struct printer *P, struct json_value *V, int flags) {
 	memset(P, 0, sizeof *P);
 	P->flags = flags;
@@ -2033,7 +2038,7 @@ JSON_PUBLIC size_t json_compose(struct json *J, void *dst, size_t lim, int flags
 	size_t count;
 
 	if (!J->printer.state) {
-		if (!(root = value_root(J->root)))
+		if (!(root = print_root(J->root, flags|J->flags)))
 			return 0;
 
 		print_init(&J->printer, root, flags|J->flags);
@@ -2083,7 +2088,7 @@ JSON_PUBLIC int json_printfile(struct json *J, FILE *fp, int flags) {
 	size_t count;
 	int error;
 
-	if (!(root = value_root(J->root)))
+	if (!(root = print_root(J->root, flags|J->flags)))
 		return 0;
 
 	print_init(&P, root, flags|J->flags);
@@ -2112,7 +2117,7 @@ JSON_PUBLIC size_t json_printstring(struct json *J, void *dst, size_t lim, int f
 	char buffer[512], *p, *pe;
 	size_t count, total;
 
-	if (!(root = value_root(J->root)))
+	if (!(root = print_root(J->root, flags|J->flags)))
 		goto empty;
 
 	print_init(&P, root, flags|J->flags);
@@ -3064,8 +3069,9 @@ static void call_exec(struct call *fun) {
 
 
 #define USAGE \
-	"%s [-pf:Vh] [cmd [args] ...]\n" \
+	"%s [-pPf:Vh] [cmd [args] ...]\n" \
 	"  -p       pretty print\n" \
+	"  -P       print partial subtree\n" \
 	"  -f PATH  file to parse\n" \
 	"  -V       print version\n" \
 	"  -h       print usage\n" \
@@ -3095,10 +3101,14 @@ int main(int argc, char **argv) {
 	const char *file = NULL, *cmd;
 	struct call fun;
 
-	while (-1 != (opt = getopt(argc, argv, "pf:Vh"))) {
+	while (-1 != (opt = getopt(argc, argv, "pPf:Vh"))) {
 		switch (opt) {
 		case 'p':
 			flags |= JSON_F_PRETTY;
+
+			break;
+		case 'P':
+			flags |= JSON_F_PARTIAL;
 
 			break;
 		case 'f':

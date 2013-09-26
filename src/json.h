@@ -179,6 +179,7 @@ JSON_PUBLIC const char *json_strerror(json_error_t error);
 #define JSON_F_AUTOVIV   0x08 /* XXX: unused/deprecated/big mistake */
 #define JSON_F_NOAUTOVIV 0x10 /* disable autovivification */
 #define JSON_F_NOCONVERT 0x20 /* disable conversion of incompatible inner nodes during autovivification */
+#define JSON_F_PARTIAL   0x40 /* print subtree at current root, not whole document */
 
 #define json_flags_t int /* for documentation purposes only */
 
