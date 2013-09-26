@@ -20,11 +20,8 @@
 cc-option = $(shell if $(CC) $(1) -S -o /dev/null -xc /dev/null \
               > /dev/null 2>&1; then echo "$(1)"; else echo "$(2)"; fi;)
 
-# Find most recent GCC version
-CC := $(shell find $$(echo $${PATH} | tr ':' ' ') -maxdepth 1 -name gcc -o -name gcc-\* | while read GCC; do echo $$($$GCC -v 2>&1 | tail -n1 | cut -d' ' -f3) $$GCC; done | sort -nr | head -n1 | cut -d' ' -f2)
-
-override CPPFLAGS += -D_GNU_SOURCE -D_BSD_SOURCE -D_DARWIN_C_SOURCE -DJSON_MAIN
-override DFLAGS   += -Wall -Wextra -O0 -g
+override CPPFLAGS += -D_GNU_SOURCE -DJSON_MAIN
+override DFLAGS   += -Wall -Wextra -O3 -g
 override CFLAGS   += $(call cc-option, -std=c11, -std=gnu99) $(DFLAGS)
 override LDFLAGS  += 
 override LDLIBS   += -lffi
