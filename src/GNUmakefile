@@ -21,23 +21,38 @@ cc-option = $(shell if $(CC) $(1) -S -o /dev/null -xc /dev/null \
               > /dev/null 2>&1; then echo "$(1)"; else echo "$(2)"; fi;)
 
 override CPPFLAGS += -D_GNU_SOURCE -DJSON_MAIN
-override DFLAGS   += -Wall -Wextra -O3 -g
-override CFLAGS   += $(call cc-option, -std=c11, -std=gnu99) $(DFLAGS)
-override LDFLAGS  += 
-override LDLIBS   += -lffi
+
+ifeq (SunOS,$(shell uname -s))
+override CFLAGS +=
+else
+override DFLAGS += -Wall -Wextra -O3 -g
+override CFLAGS += $(call cc-option, -std=c11, -std=gnu99) $(DFLAGS)
+endif
+
+override LDFLAGS += 
+override LDLIBS  += -lffi
 
 ifeq (Linux,$(shell uname -s))
 override CPPFLAGS += -DFFI_H_PATH=\<ffi.h\>
 override LDLIBS   += -lm
-else
+endif
+
 ifeq (OpenBSD,$(shell uname -s))
 override CPPFLAGS += -I/usr/local/include -DFFI_H_PATH=\<ffi.h\>
 override LDFLAGS  += -L/usr/local/lib
 override LDLIBS   += -pthread
 endif
+
+ifeq (SunOS,$(shell uname -s))
+override LDLIBS += -lm
 endif
 
+
 all: json
+
+json: json.c
+	$(CC) $(CFLAGS) -o $@ $^ $(CPPFLAGS) $(LDFLAGS) $(LDLIBS)
+
 
 .PHONY: clean clean~
 

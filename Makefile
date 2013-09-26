@@ -1,7 +1,7 @@
 .POSIX:
 
 all:
-	+make -C src all
+	+cd src && make all
         
 .DEFAULT:
-	+make -C src $<
+	+cd src && make $<

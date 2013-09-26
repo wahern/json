@@ -63,7 +63,11 @@
 #undef HAI
 #define HAI SAY("hai")
 
+#ifdef __GNUC__
 #define JSON_NOTUSED __attribute__((unused))
+#else
+#define JSON_NOTUSED
+#endif
 
 
 #if __linux
@@ -125,6 +129,14 @@ static inline _Bool json_isgraph(unsigned char ch) {
 static inline _Bool json_isascii(unsigned char ch) {
 	return !(0x80 & ch);
 } /* json_isascii() */
+
+
+static inline _Bool json_isnumber(unsigned char ch) {
+	/* + - . 0-9 E e */
+	unsigned long long number[4] = { 0x3ff680000000000ULL, 0x2000000020ULL, 0, 0 };
+
+	return json_isctype(number, ch);
+} /* json_isnumber() */
 
 
 JSON_PUBLIC const char *json_strtype(enum json_type type) {
@@ -516,12 +528,7 @@ static void lex_newnum(struct lexer *L) {
 
 
 static inline _Bool lex_isnum(int ch) {
-	static const char table[256] = {
-		['+'] = 1, ['-'] = 1, ['.'] = 1,
-		['0' ... '9'] = 1, ['E'] = 1, ['e'] = 1,
-	};
-
-	return table[ch & 0xff];
+	return json_isnumber(ch);
 } /* lex_isnum() */
 
 
@@ -570,7 +577,10 @@ static int lex_frompair(int hi, int lo) {
 } /* lex_frompair() */
 
 
-#define resume() do { goto *((L->state)? L->state : &&start); } while (0)
+#define resume() do { \
+	if (L->state) \
+		goto *L->state; \
+} while (0)
 
 #define popchar() do { \
 	JSON_XPASTE(L, __LINE__): \
@@ -794,12 +804,10 @@ failed:
  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-typedef int index_t;
-
 struct node {
 	union {
 		struct json_value *key;
-		index_t index;
+		json_index_t index;
 	};
 
 	struct json_value *value;
@@ -825,12 +833,12 @@ struct json_value {
 	union {
 		struct {
 			LLRB_HEAD(array, node) nodes;
-			index_t count;
+			json_index_t count;
 		} array;
 
 		struct {
 			LLRB_HEAD(object, node) nodes;
-			index_t count;
+			json_index_t count;
 		} object;
 
 		struct string *string;
@@ -1666,7 +1674,8 @@ static struct json_value *tovalue(struct token *T, int *error) {
 
 #define RESUME() do { \
 	T = (CIRCLEQ_EMPTY(&P->tokens))? 0 : CIRCLEQ_LAST(&P->tokens); \
-	goto *((P->state)? P->state : &&start); \
+	if (P->state) \
+		goto *P->state; \
 } while (0)
 
 #define YIELD() do { \
