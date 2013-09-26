@@ -281,7 +281,7 @@ enum json_type {
 	JSON_T_NUMBER,
 	JSON_T_STRING,
 	JSON_T_ARRAY,
-	JSON_T_OBJECT,
+	JSON_T_OBJECT
 }; /* enum json_type */
 
 
