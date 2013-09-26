@@ -103,7 +103,8 @@ static void splice(const char *to_file, const char *to_path, const char *from_fi
 
 static void usage(const char *progname, FILE *fp) {
 #define USAGE \
-	"%s [-h] to-file to-path from-file [from-path]\n" \
+	"%s [-Vh] to-file to-path from-file [from-path]\n" \
+	"  -V  print version\n" \
 	"  -h  print usage\n" \
 	"\n" \
 	"Report bugs to <william@25thandClement.com>\n"
@@ -111,12 +112,32 @@ static void usage(const char *progname, FILE *fp) {
 	fprintf(fp, USAGE, progname);
 } /* usage() */
 
+#if __cplusplus-0
+#define CPLUSPLUS 1
+#else
+#define CPLUSPLUS 0
+#endif
+
+static void version(const char *progname, FILE *fp) {
+	fprintf(fp, "%s (splice.c) %.8X\n", progname, json_version());
+	fprintf(fp, "built   %s %s\n", __DATE__, __TIME__);
+	fprintf(fp, "C/C++   %s\n", (CPLUSPLUS)? "C++" : "C");
+	fprintf(fp, "vendor  %s\n", json_vendor());
+	fprintf(fp, "release %.8X\n", json_v_rel());
+	fprintf(fp, "abi     %.8X\n", json_v_abi());
+	fprintf(fp, "api     %.8X\n", json_v_api());
+} /* version() */
+
 int main(int argc, char **argv) {
 	extern int optind;
 	int opt;
 
-	while (-1 != (opt = getopt(argc, argv, "h"))) {
+	while (-1 != (opt = getopt(argc, argv, "Vh"))) {
 		switch (opt) {
+		case 'V':
+			version(basename(argv[0]), stdout);
+
+			return 0;
 		case 'h':
 			usage(basename(argv[0]), stdout);
 
