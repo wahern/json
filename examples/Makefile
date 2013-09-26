@@ -19,7 +19,7 @@ splice++: splice.cc libjson.a
 .PHONY: clean clean~
 
 clean:
-	$(RM) -rf splice splice++ libjson.a *.dSYM
+	$(RM) -rf splice splice++ splice.cc libjson.a *.dSYM
 
 clean~: clean
 	$(RM) -f *~
