@@ -3069,12 +3069,55 @@ static void call_exec(struct call *fun) {
 
 
 #define USAGE \
-	"%s [-pPf:Vh] [cmd [args] ...]\n" \
+	"%s [-pPf:Vh] [CMD [ARG ...] ...]\n" \
 	"  -p       pretty print\n" \
 	"  -P       print partial subtree\n" \
 	"  -f PATH  file to parse\n" \
 	"  -V       print version\n" \
 	"  -h       print usage\n" \
+	"\n" \
+	"COMMANDS\n" \
+	"  print                 print document to stdout using json_printfile\n" \
+	"  puts                  print document to stdout using json_printstring\n" \
+	"  rewind                rewind printer to beginning\n" \
+	"  delete PATH           delete node\n" \
+	"  type PATH             print node type\n" \
+	"  exists PATH           print whether node exists--yes or no\n" \
+	"  number PATH           print number value\n" \
+	"  string PATH           print string value\n" \
+	"  length PATH           print string length\n" \
+	"  count PATH            print object or array entry count\n" \
+	"  boolean PATH          print boolean value--true or false\n" \
+	"  push PATH             push node onto top of path stack\n" \
+	"  pop                   pop a node from path stack\n" \
+	"  popall                pop all nodes except real root\n" \
+	"  setnumber NUM PATH    set node to number\n" \
+	"  setstring TXT PATH    set node to string\n" \
+	"  setboolean BOOL PATH  set node to boolean\n" \
+	"  setnull PATH          set node to null\n" \
+	"  setarray PATH         convert node to array\n" \
+	"  setobject PATH        convert node to object\n" \
+	"\n" \
+	"PATH FORMAT\n" \
+	"  A path consists of object and array entry indices, each of which may contain\n" \
+	"  one or more format specifiers. For each format specifier the respective\n" \
+	"  number or string should be passed as an additional path argument in its\n" \
+	"  respective argument position.\n" \
+	"\n" \
+	"  Object key names should be preceded by a period, and array indices enclosed\n" \
+	"  in square brackets. The # format specifier takes a numeric argument, while\n" \
+	"  the $ format specifier takes a string as a replacement value. Example:\n" \
+	"\n" \
+	"  	foo[#].b$ 2 ar\n" \
+	"\n" \
+	"  This path first indexes the root node as an object with a key of \"foo\".\n" \
+	"  \"foo\" is then indexed as an array with a value at position 0. The 0 node is\n" \
+	"  in turn treated as an object with a key of \"bar\". These commands\n" \
+	"\n" \
+	"  	setnumber 47 foo[#].b$ 0 ar\n" \
+	"  	number foo[0].bar\n" \
+	"\n" \
+	"  will print the number 47.0 to stdout.\n" \
 	"\n" \
 	"Report bugs to <william@25thandClement.com>\n"
 
@@ -3178,6 +3221,8 @@ int main(int argc, char **argv) {
 
 			if (!(flags & JSON_F_PRETTY))
 				fputc('\n', stdout);
+		} else if (!strcmp(cmd, "rewind")) {
+			json_rewind(J);
 		} else if (!strcmp(cmd, "delete")) {
 			call_init(&fun, &ffi_type_void, (void *)&json_delete);
 			call_push(&fun, &ffi_type_pointer, J);
