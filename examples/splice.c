@@ -46,16 +46,14 @@ static void splice(const char *to_file, const char *to_path, const char *from_fi
 	json_push(from, from_path);
 
 	memset(&I, 0, sizeof I);
-	I.depth = 64;
 	json_v_start(from, &I, json_top(from));
 
 	while ((V = json_v_next(from, &I))) {
-		if (I._.order & JSON_I_PREORDER) {
-			if (I._.depth > 0) {
+		if (json_i_order(from, &I) == JSON_I_PREORDER) {
+			if (json_i_depth(from, &I) > 0) {
 				if ((K = json_v_keyof(from, V))) {
 					json_push(to, "$", json_v_string(from, K));
-				} else {
-					index = json_v_indexof(from, V);
+				} else if (-1 != (index = json_v_indexof(from, V))) {
 					json_push(to, "[#]", index);
 				}
 			}
@@ -91,7 +89,7 @@ static void splice(const char *to_file, const char *to_path, const char *from_fi
 				break;
 			}
 		} else {
-			if (I._.depth > 0 && (json_v_type(from, V) == JSON_T_ARRAY || json_v_type(from, V) == JSON_T_OBJECT))
+			if (json_i_depth(from, &I) > 0 && (json_v_type(from, V) == JSON_T_ARRAY || json_v_type(from, V) == JSON_T_OBJECT))
 				json_pop(to);
 		}
 	}

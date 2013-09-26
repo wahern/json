@@ -158,9 +158,11 @@ JSON_PUBLIC enum json_type json_itype(const char *type) {
 	};
 	size_t i;
 
-	for (i = 0; i < json_countof(name); i++) {
-		if (!strcmp(type, name[i]))
-			return (enum json_type)i;
+	if (type && *type) {
+		for (i = 0; i < json_countof(name); i++) {
+			if (!strcmp(type, name[i]))
+				return (enum json_type)i;
+		}
 	}
 
 	return JSON_T_NULL;
@@ -1307,8 +1309,8 @@ static struct json_value *value_adjacent(struct json_value *V) {
 } /* value_adjacent() */
 
 
-#define ORDER_PRE 0x01
-#define ORDER_POST 0x02
+#define ORDER_PRE  JSON_I_PREORDER
+#define ORDER_POST JSON_I_POSTORDER
 
 static struct json_value *value_next(struct json_value *V, int *order, int *depth) {
 	struct json_value *nxt;
@@ -1869,7 +1871,7 @@ stop:
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 struct json {
-	int flags;
+	int flags, mode;
 	struct parser parser;
 	struct printer printer;
 	jmp_buf *trap;
@@ -1884,6 +1886,8 @@ JSON_PUBLIC struct json *json_open(int flags, int *error) {
 		return NULL;
 
 	J->flags = flags;
+	J->mode = ~((flags & (JSON_F_NOAUTOVIV|JSON_F_NOCONVERT)) >> 4)
+	        & (JSON_M_AUTOVIV|JSON_M_CONVERT);
 
 	parse_init(&J->parser);
 
@@ -1949,7 +1953,7 @@ JSON_PUBLIC int json_parse(struct json *J, const void *src, size_t len) {
 } /* json_parse() */
 
 
-JSON_PUBLIC int json_loadlstring(struct json *J, const void *src, size_t len) {
+JSON_PUBLIC int json_loadbuffer(struct json *J, const void *src, size_t len) {
 	int error;
 
 	if (J->root)
@@ -1959,11 +1963,16 @@ JSON_PUBLIC int json_loadlstring(struct json *J, const void *src, size_t len) {
 		return json_throw(J, (error == EAGAIN)? JSON_ETRUNCATED : error);
 
 	return 0;
+} /* json_loadbuffer() */
+
+
+JSON_PUBLIC JSON_DEPRECATED int json_loadlstring(struct json *J, const void *src, size_t len) {
+	return json_loadbuffer(J, src, len);
 } /* json_loadlstring() */
 
 
 JSON_PUBLIC int json_loadstring(struct json *J, const char *src) {
-	return json_loadlstring(J, src, json_strlen(src));
+	return json_loadbuffer(J, src, json_strlen(src));
 } /* json_loadstring() */
 
 
@@ -2045,8 +2054,13 @@ JSON_PUBLIC size_t json_compose(struct json *J, void *dst, size_t lim, int flags
 } /* json_compose() */
 
 
-JSON_PUBLIC void json_flush(struct json *J) {
+JSON_PUBLIC void json_rewind(struct json *J) {
 	print_init(&J->printer, 0, 0);
+} /* json_rewind() */
+
+
+JSON_PUBLIC JSON_DEPRECATED void json_flush(struct json *J) {
+	json_rewind(J);
 } /* json_flush() */
 
 
@@ -2325,6 +2339,11 @@ JSON_PUBLIC int json_v_setbuffer(struct json *J, struct json_value *V, const voi
 } /* json_v_setbuffer() */
 
 
+JSON_PUBLIC JSON_DEPRECATED int json_v_setlstring(struct json *J, struct json_value *V, const void *sp, size_t len) {
+	return json_v_setbuffer(J, V, sp, len);
+} /* json_v_setlstring() */
+
+
 JSON_PUBLIC int json_v_setstring(struct json *J, struct json_value *V, const void *sp) {
 	return json_v_setbuffer(J, V, sp, json_strlen(sp));
 } /* json_v_setstring() */
@@ -2357,6 +2376,26 @@ JSON_PUBLIC int json_v_setobject(struct json *J, struct json_value *V) {
 } /* json_v_setobject() */
 
 
+JSON_PUBLIC int json_i_level(struct json *J JSON_NOTUSED, struct json_iterator *I) {
+	return I->level + I->_.depth;
+} /* json_i_level() */
+
+
+JSON_PUBLIC int json_i_depth(struct json *J JSON_NOTUSED, struct json_iterator *I) {
+	return I->_.depth;
+} /* json_i_depth() */
+
+
+JSON_PUBLIC int json_i_order(struct json *J JSON_NOTUSED, struct json_iterator *I) {
+	return I->_.order;
+} /* json_i_order() */
+
+
+JSON_PUBLIC void json_i_skip(struct json *J JSON_NOTUSED, struct json_iterator *I) {
+	I->_.order = ORDER_POST;
+} /* json_i_skip() */
+
+
 JSON_PUBLIC void json_v_start(struct json *J JSON_NOTUSED, struct json_iterator *I, struct json_value *V) {
 	memset(&I->_, 0, sizeof I->_);
 	I->_.value = V;
@@ -2366,11 +2405,6 @@ JSON_PUBLIC void json_v_start(struct json *J JSON_NOTUSED, struct json_iterator 
 	if (I->depth <= 0)
 		I->depth = INT_MAX;
 } /* json_v_start() */
-
-
-JSON_PUBLIC void json_i_skip(struct json *J JSON_NOTUSED, struct json_iterator *I) {
-	I->_.order = ORDER_POST;
-} /* json_i_skip() */
 
 
 JSON_PUBLIC struct json_value *json_v_next(struct json *J JSON_NOTUSED, struct json_iterator *I) {
@@ -2609,7 +2643,7 @@ JSON_PUBLIC int json_push(struct json *J, const char *fmt, ...) {
 
 	path_init(&path, fmt);
 
-	if ((error = path_exec(J, &path, JSON_M_AUTOVIV|JSON_M_CONVERT)))
+	if ((error = path_exec(J, &path, J->mode)))
 		return json_throw(J, error);
 
 	path.value->root = J->root;
@@ -2754,7 +2788,7 @@ JSON_PUBLIC int json_setnumber(struct json *J, double number, const char *fmt, .
 
 	path_init(&path, fmt);
 
-	if ((error = path_exec(J, &path, JSON_M_AUTOVIV|JSON_M_CONVERT)))
+	if ((error = path_exec(J, &path, J->mode)))
 		return json_throw(J, error);
 
 	return json_v_setnumber(J, path.value, number);
@@ -2767,11 +2801,24 @@ JSON_PUBLIC int json_setbuffer(struct json *J, const void *src, size_t len, cons
 
 	path_init(&path, fmt);
 
-	if ((error = path_exec(J, &path, JSON_M_AUTOVIV|JSON_M_CONVERT)))
+	if ((error = path_exec(J, &path, J->mode)))
 		return json_throw(J, error);
 
 	return json_v_setbuffer(J, path.value, src, len);
 } /* json_setbuffer() */
+
+
+JSON_PUBLIC JSON_DEPRECATED int json_setlstring(struct json *J, const void *src, size_t len, const char *fmt, ...) {
+	struct json_path path;
+	int error;
+
+	path_init(&path, fmt);
+
+	if ((error = path_exec(J, &path, J->mode)))
+		return json_throw(J, error);
+
+	return json_v_setbuffer(J, path.value, src, len);
+} /* json_setlstring() */
 
 
 JSON_PUBLIC int json_setstring(struct json *J, const void *src, const char *fmt, ...) {
@@ -2780,7 +2827,7 @@ JSON_PUBLIC int json_setstring(struct json *J, const void *src, const char *fmt,
 
 	path_init(&path, fmt);
 
-	if ((error = path_exec(J, &path, JSON_M_AUTOVIV|JSON_M_CONVERT)))
+	if ((error = path_exec(J, &path, J->mode)))
 		return json_throw(J, error);
 
 	return json_v_setstring(J, path.value, src);
@@ -2793,7 +2840,7 @@ JSON_PUBLIC int json_setboolean(struct json *J, _Bool boolean, const char *fmt, 
 
 	path_init(&path, fmt);
 
-	if ((error = path_exec(J, &path, JSON_M_AUTOVIV|JSON_M_CONVERT)))
+	if ((error = path_exec(J, &path, J->mode)))
 		return json_throw(J, error);
 
 	return json_v_setboolean(J, path.value, boolean);
@@ -2806,7 +2853,7 @@ JSON_PUBLIC int json_setnull(struct json *J, const char *fmt, ...) {
 
 	path_init(&path, fmt);
 
-	if ((error = path_exec(J, &path, JSON_M_AUTOVIV|JSON_M_CONVERT)))
+	if ((error = path_exec(J, &path, J->mode)))
 		return json_throw(J, error);
 
 	return json_v_setnull(J, path.value);
@@ -2819,7 +2866,7 @@ JSON_PUBLIC int json_setarray(struct json *J, const char *fmt, ...) {
 
 	path_init(&path, fmt);
 
-	if ((error = path_exec(J, &path, JSON_M_AUTOVIV|JSON_M_CONVERT)))
+	if ((error = path_exec(J, &path, J->mode)))
 		return json_throw(J, error);
 
 	return json_v_setarray(J, path.value);
@@ -2832,7 +2879,7 @@ JSON_PUBLIC int json_setobject(struct json *J, const char *fmt, ...) {
 
 	path_init(&path, fmt);
 
-	if ((error = path_exec(J, &path, JSON_M_AUTOVIV|JSON_M_CONVERT)))
+	if ((error = path_exec(J, &path, J->mode)))
 		return json_throw(J, error);
 
 	return json_v_setobject(J, path.value);
