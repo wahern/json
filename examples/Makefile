@@ -2,6 +2,7 @@ all: splice
 
 CPPFLAGS = -I../src
 CFLAGS = -Wall -Wextra -O2 -g
+CXXFLAGS = $(CFLAGS)
 
 libjson.a: ../src/json.c
 	$(CC) $(CFLAGS) -c -o $@ $< $(CPPFLAGS)
@@ -9,15 +10,15 @@ libjson.a: ../src/json.c
 splice: splice.c libjson.a
 
 splice.cc: splice.c
-	ln $^ $@
+	ln -f $^ $@
 
 splice++: splice.cc libjson.a
-	$(CXX) $(CFLAGS) $^ -o $@ $(CPPFLAGS)
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(CPPFLAGS)
 
 .PHONY: clean clean~
 
 clean:
-	$(RM) -rf splice splice++ *.dSYM
+	$(RM) -rf splice splice++ libjson.a *.dSYM
 
 clean~: clean
 	$(RM) -f *~
