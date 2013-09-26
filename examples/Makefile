@@ -5,21 +5,21 @@ CXXFLAGS = $(CFLAGS)
 CXX = c++
 
 libjson.a: ../src/json.c
-	$(CC) $(CFLAGS) -c -o $@ $^ $(CPPFLAGS)
+	$(CC) $(CFLAGS) -c -o $@ ../src/json.c $(CPPFLAGS)
 
 splice: splice.c libjson.a
-	$(CC) $(CFLAGS) $^ -o $@ $(CPPFLAGS) -I../src -lm
+	$(CC) $(CFLAGS) -o $@ splice.c libjson.a $(CPPFLAGS) -I../src -lm
 
 splice.cc: splice.c
-	ln -f $^ $@
+	ln -f $(@:.cc=.c) $@
 
 splice++: splice.cc libjson.a
-	$(CXX) $(CXXFLAGS) $^ -o $@ $(CPPFLAGS) -I../src -lm
+	$(CXX) $(CXXFLAGS) -o $@ splice.cc libjson.a $(CPPFLAGS) -I../src -lm
 
 .PHONY: clean clean~
 
 clean:
-	$(RM) -rf splice splice++ splice.cc libjson.a *.dSYM
+	rm -rf splice splice++ splice.cc libjson.a *.dSYM
 
 clean~: clean
-	$(RM) -f *~
+	rm -f *~
