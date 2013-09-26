@@ -26,10 +26,14 @@
 #ifndef JSON_H
 #define JSON_H
 
-#include <stddef.h> /* size_t */
-#include <stdio.h>  /* FILE */
+#include <stddef.h>  /* size_t */
+#include <stdbool.h> /* bool */
+#include <stdio.h>   /* FILE */
+#include <setjmp.h>  /* _setjmp(3) */
 
-#include <setjmp.h> /* _setjmp(3) */
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 
 /*
@@ -371,7 +375,7 @@ JSON_PUBLIC size_t json_v_count(struct json *, struct json_value *);
  * flag is set, attempts to throw an error.
  */
 
-JSON_PUBLIC _Bool json_v_boolean(struct json *, struct json_value *);
+JSON_PUBLIC bool json_v_boolean(struct json *, struct json_value *);
 /* Returns a boolean. For types other than JSON_T_BOOLEAN returns 0; if the
  * JSON_F_STRONG flag is set, attempts to throw an error.
  */
@@ -392,7 +396,7 @@ JSON_PUBLIC json_error_t json_v_setstring(struct json *, struct json_value *, co
  * success, and non-0 on failure.
  */
 
-JSON_PUBLIC json_error_t json_v_setboolean(struct json *, struct json_value *, _Bool);
+JSON_PUBLIC json_error_t json_v_setboolean(struct json *, struct json_value *, bool);
 /* Assigns the boolean, converting the type if necessary. Returns 0 on
  * success, and non-0 on failure.
  */
@@ -520,7 +524,7 @@ JSON_PUBLIC void json_popall(struct json *);
 
 JSON_PUBLIC enum json_type json_type(struct json *, const char *, ...);
 
-JSON_PUBLIC _Bool json_exists(struct json *, const char *, ...);
+JSON_PUBLIC bool json_exists(struct json *, const char *, ...);
 
 JSON_PUBLIC struct json_value *json_top(struct json *);
 
@@ -534,7 +538,7 @@ JSON_PUBLIC size_t json_length(struct json *, const char *, ...);
 
 JSON_PUBLIC size_t json_count(struct json *, const char *, ...);
 
-JSON_PUBLIC _Bool json_boolean(struct json *, const char *, ...);
+JSON_PUBLIC bool json_boolean(struct json *, const char *, ...);
 
 JSON_PUBLIC json_error_t json_setnumber(struct json *, double, const char *, ...);
 
@@ -542,7 +546,7 @@ JSON_PUBLIC json_error_t json_setbuffer(struct json *, const void *, size_t, con
 
 JSON_PUBLIC json_error_t json_setstring(struct json *, const void *, const char *, ...);
 
-JSON_PUBLIC json_error_t json_setboolean(struct json *, _Bool, const char *, ...);
+JSON_PUBLIC json_error_t json_setboolean(struct json *, bool, const char *, ...);
 
 JSON_PUBLIC json_error_t json_setnull(struct json *, const char *, ...);
 
@@ -568,5 +572,9 @@ JSON_PUBLIC JSON_DEPRECATED void json_flush(struct json *);
 
 JSON_PUBLIC JSON_DEPRECATED json_error_t json_v_setlstring(struct json *, struct json_value *, const void *, size_t);
 
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* JSON_H */

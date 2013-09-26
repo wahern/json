@@ -638,9 +638,9 @@ start:
 	case 'n':
 		goto null;
 	case 't':
-		goto true;
+		goto btrue;
 	case 'f':
-		goto false;
+		goto bfalse;
 	default:
 		goto invalid;
 	} /* switch (ch) */
@@ -755,7 +755,7 @@ null:
 	pushtoken(T_NULL);
 
 	goto start;
-true:
+btrue:
 	expect('r');
 	expect('u');
 	expect('e');
@@ -763,7 +763,7 @@ true:
 	pushtoken(T_BOOLEAN, 1);
 
 	goto start;
-false:
+bfalse:
 	expect('a');
 	expect('l');
 	expect('s');
