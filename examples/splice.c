@@ -14,7 +14,7 @@ static struct json *loadpath(const char *path) {
 	struct json *J;
 	int error;
 
-	if (!(J = json_open(0, &error)))
+	if (!(J = json_open(JSON_F_NONE, &error)))
 		goto error;
 	
 	if ((error = (!strcmp(path, "-"))? json_loadfile(J, stdin) : json_loadpath(J, path)))

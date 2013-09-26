@@ -117,6 +117,8 @@ enum json_errors {
 	JSON_ETRUNCATED,
 	JSON_ENOMORE,
 	JSON_ETYPING,
+	JSON_EBADPATH,
+	JSON_EBIGPATH,
 	JSON_ELAST
 }; /* enum json_errors */
 

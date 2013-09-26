@@ -171,12 +171,14 @@ JSON_PUBLIC enum json_type json_itype(const char *type) {
 
 JSON_PUBLIC const char *json_strerror(int error) {
 	static const char *descr[] = {
-		[JSON_EASSERT-JSON_EBASE] = "JSON assertion",
-		[JSON_ELEXICAL-JSON_EBASE] = "JSON lexical error",
-		[JSON_ESYNTAX-JSON_EBASE] = "JSON syntax error",
+		[JSON_EASSERT-JSON_EBASE]    = "JSON assertion",
+		[JSON_ELEXICAL-JSON_EBASE]   = "JSON lexical error",
+		[JSON_ESYNTAX-JSON_EBASE]    = "JSON syntax error",
 		[JSON_ETRUNCATED-JSON_EBASE] = "JSON truncated input",
-		[JSON_ENOMORE-JSON_EBASE] = "JSON no more input needed",
-		[JSON_ETYPING-JSON_EBASE] = "JSON illegal operation on type",
+		[JSON_ENOMORE-JSON_EBASE]    = "JSON no more input needed",
+		[JSON_ETYPING-JSON_EBASE]    = "JSON illegal operation on type",
+		[JSON_EBADPATH-JSON_EBASE]   = "JSON malformed path",
+		[JSON_EBIGPATH-JSON_EBASE]   = "JSON path too long",
 	};
 
 	if (error >= JSON_EBASE && error < JSON_ELAST)
@@ -1335,7 +1337,7 @@ static struct json_value *value_next(struct json_value *V, int *order, int *dept
 		*order = ORDER_PRE;
 
 		return V->node->value;
-	} else if ((nxt = value_adjacent(V))) {
+	} else if (*depth > 0 && (nxt = value_adjacent(V))) {
 		*order = ORDER_PRE;
 
 		return nxt;
@@ -2463,6 +2465,11 @@ struct json_path {
 } while(0)
 
 
+static _Bool path_eof(struct json_path *path) {
+	return !*path->fp;
+} /* path_eof() */
+
+
 static unsigned path_getc(struct json_path *path) {
 	return (*path->fp)? *path->fp++ : 0;
 } /* path_getc() */
@@ -2498,7 +2505,7 @@ static int key_putc(struct json_path *path, int ch) {
 
 		return 0;
 	} else
-		return JSON_ESYNTAX;
+		return JSON_EBIGPATH;
 } /* key_putc() */
 
 
@@ -2509,7 +2516,7 @@ static int key_puts(struct json_path *path, const char *str) {
 	len = json_strlcpy(path->kp, str, lim);
 
 	if (len >= lim)
-		return JSON_ESYNTAX;
+		return JSON_EBIGPATH;
 
 	path->kp += len;
 
@@ -2518,7 +2525,7 @@ static int key_puts(struct json_path *path, const char *str) {
 
 
 static _Bool path_next(struct json_path *path, int *error) {
-	int ch, sign, index, len;
+	int ch, nf, sign, index, len;
 	const char *str;
 
 	path->type = 0;
@@ -2529,10 +2536,18 @@ static _Bool path_next(struct json_path *path, int *error) {
 	} else if (ch == -'[')
 		goto array;
 
-	if (ch == -'.')
+	if (ch == -'.') {
 		ch = path_popc(path);
 
+		if (ch == -'.' || ch == -'[')
+			goto syntx; /* back-to-back separators illegal */
+	}
+
+	nf = 0;
+
 	while (ch && ch != -'.' && ch != -'[') {
+		++nf;
+
 		switch (ch) {
 		case -'#':
 			index = va_arg(path->ap, int);
@@ -2540,9 +2555,7 @@ static _Bool path_next(struct json_path *path, int *error) {
 			len = snprintf(path->kp, json_endof(path->key) - path->kp, "%d", index);
 
 			if (len >= json_endof(path->key) - path->kp) {
-				*error = JSON_ESYNTAX;
-
-				goto error;
+				goto syntx;
 			} else if (len < 0)
 				goto syerr;
 
@@ -2573,7 +2586,11 @@ static _Bool path_next(struct json_path *path, int *error) {
 	*path->kp = '\0';
 	path->len = path->kp - path->key;
 
-	return !!path->len;
+	/*
+	 * NOTE: Allow empty string keys as long as we consumed a valid key
+	 * format.
+	 */
+	return nf > 0;
 array:
 	sign = 1;
 	index = 0;
@@ -2594,15 +2611,11 @@ index:
 			index += ch - '0';
 		} while ((ch = path_popc(path)) > 0 && json_isdigit(ch));
 	} else {
-		*error = JSON_ESYNTAX;
-
-		goto error;
+		goto syntx;
 	}
 
 	if (ch != -']') {
-		*error = JSON_ESYNTAX;
-
-		goto error;
+		goto syntx;
 	}
 
 	path->type = JSON_T_ARRAY;
@@ -2611,6 +2624,10 @@ index:
 	return 1;
 syerr:
 	*error = errno;
+
+	goto error;
+syntx:
+	*error = JSON_EBADPATH;
 error:
 	return 0;
 } /* path_next() */
@@ -2637,6 +2654,11 @@ static int path_exec(struct json *J, struct json_path *path, int mode) {
 } /* path_exec() */
 
 
+static _Bool path_exists(struct json_path *path) {
+	return path->value && path_eof(path);
+} /* path_exists() */
+
+
 JSON_PUBLIC int json_push(struct json *J, const char *fmt, ...) {
 	struct json_path path;
 	int error;
@@ -2645,6 +2667,9 @@ JSON_PUBLIC int json_push(struct json *J, const char *fmt, ...) {
 
 	if ((error = path_exec(J, &path, J->mode)))
 		return json_throw(J, error);
+
+	if (!path_exists(&path)) /* either JSON_F_NOAUTOVIV or JSON_F_NOCONVERT */
+		return json_throw(J, JSON_ETYPING);
 
 	path.value->root = J->root;
 	J->root = path.value;
@@ -2791,6 +2816,9 @@ JSON_PUBLIC int json_setnumber(struct json *J, double number, const char *fmt, .
 	if ((error = path_exec(J, &path, J->mode)))
 		return json_throw(J, error);
 
+	if (!path_exists(&path))
+		return json_throw(J, JSON_ETYPING);
+
 	return json_v_setnumber(J, path.value, number);
 } /* json_setnumber() */
 
@@ -2803,6 +2831,9 @@ JSON_PUBLIC int json_setbuffer(struct json *J, const void *src, size_t len, cons
 
 	if ((error = path_exec(J, &path, J->mode)))
 		return json_throw(J, error);
+
+	if (!path_exists(&path))
+		return json_throw(J, JSON_ETYPING);
 
 	return json_v_setbuffer(J, path.value, src, len);
 } /* json_setbuffer() */
@@ -2817,6 +2848,9 @@ JSON_PUBLIC JSON_DEPRECATED int json_setlstring(struct json *J, const void *src,
 	if ((error = path_exec(J, &path, J->mode)))
 		return json_throw(J, error);
 
+	if (!path_exists(&path))
+		return json_throw(J, JSON_ETYPING);
+
 	return json_v_setbuffer(J, path.value, src, len);
 } /* json_setlstring() */
 
@@ -2829,6 +2863,9 @@ JSON_PUBLIC int json_setstring(struct json *J, const void *src, const char *fmt,
 
 	if ((error = path_exec(J, &path, J->mode)))
 		return json_throw(J, error);
+
+	if (!path_exists(&path))
+		return json_throw(J, JSON_ETYPING);
 
 	return json_v_setstring(J, path.value, src);
 } /* json_setstring() */
@@ -2843,6 +2880,9 @@ JSON_PUBLIC int json_setboolean(struct json *J, _Bool boolean, const char *fmt, 
 	if ((error = path_exec(J, &path, J->mode)))
 		return json_throw(J, error);
 
+	if (!path_exists(&path))
+		return json_throw(J, JSON_ETYPING);
+
 	return json_v_setboolean(J, path.value, boolean);
 } /* json_setboolean() */
 
@@ -2855,6 +2895,9 @@ JSON_PUBLIC int json_setnull(struct json *J, const char *fmt, ...) {
 
 	if ((error = path_exec(J, &path, J->mode)))
 		return json_throw(J, error);
+
+	if (!path_exists(&path))
+		return json_throw(J, JSON_ETYPING);
 
 	return json_v_setnull(J, path.value);
 } /* json_setnull() */
@@ -2869,6 +2912,9 @@ JSON_PUBLIC int json_setarray(struct json *J, const char *fmt, ...) {
 	if ((error = path_exec(J, &path, J->mode)))
 		return json_throw(J, error);
 
+	if (!path_exists(&path))
+		return json_throw(J, JSON_ETYPING);
+
 	return json_v_setarray(J, path.value);
 } /* json_setarray() */
 
@@ -2881,6 +2927,9 @@ JSON_PUBLIC int json_setobject(struct json *J, const char *fmt, ...) {
 
 	if ((error = path_exec(J, &path, J->mode)))
 		return json_throw(J, error);
+
+	if (!path_exists(&path))
+		return json_throw(J, JSON_ETYPING);
 
 	return json_v_setobject(J, path.value);
 } /* json_setobject() */
