@@ -913,6 +913,7 @@ static int array_push(struct json_value *A, struct json_value *V) {
 	N->value = V;
 	N->parent = A;
 	V->node = N;
+	V->root = NULL;
 
 	LLRB_INSERT(array, &A->array.nodes, N);
 
@@ -937,6 +938,7 @@ static int array_insert(struct json_value *A, int index, struct json_value *V) {
 	N->value = V;
 	N->parent = A;
 	V->node = N;
+	V->root = NULL;
 
 	if (!(prev = LLRB_INSERT(array, &A->array.nodes, N)))
 		return 0;
@@ -983,6 +985,7 @@ static int object_insert(struct json_value *O, struct json_value *K, struct json
 	N->parent = O;
 	K->node = N;
 	V->node = N;
+	V->root = NULL;
 
 	O->object.count++;
 
@@ -1953,6 +1956,7 @@ JSON_PUBLIC int json_parse(struct json *J, const void *src, size_t len) {
 
 	J->root = J->parser.root;
 	J->parser.root = NULL;
+	J->root->root = NULL;
 
 	parse_destroy(&J->parser);
 
@@ -2263,6 +2267,17 @@ JSON_PUBLIC struct json_value *json_v_index(struct json *J, struct json_value *O
 
 
 JSON_PUBLIC int json_v_delete(struct json *J JSON_NOTUSED, struct json_value *V) {
+	struct json_value *root;
+
+	for (root = J->root; root; root = root->root) {
+		if (root == V) {
+			J->root = V->root;
+			V->root = NULL;
+
+			break;
+		}
+	}
+
 	value_close(V, 1);
 
 	return 0;
@@ -3081,6 +3096,7 @@ static void call_exec(struct call *fun) {
 	"  puts                  print document to stdout using json_printstring\n" \
 	"  rewind                rewind printer to beginning\n" \
 	"  delete PATH           delete node\n" \
+	"  remove N              delete the Nth node in the path stack\n" \
 	"  type PATH             print node type\n" \
 	"  exists PATH           print whether node exists--yes or no\n" \
 	"  number PATH           print number value\n" \
@@ -3331,8 +3347,33 @@ int main(int argc, char **argv) {
 			call_push(&fun, &ffi_type_pointer, J);
 			call_path(&fun, &argc, &argv);
 			call_exec(&fun);
-		} else
+		} else if (!strcmp(cmd, "remove")) {
+			struct json_value *stack[16], *root;
+			int i, n, error;
+
+			if (!argc)
+				errx(1, "remove: missing argument");
+
+			if ((i = atoi(*argv)) < 0 || i >= (int)json_countof(stack))
+				errx(1, "remove: %d: illegal argument", i);
+
+			argc--; argv++;
+
+			n = 0;
+
+			for (root = J->root; root && n < (int)json_countof(stack); root = root->root) {
+				stack[n++] = root;
+			}
+
+			if (n > 0) {
+				i = JSON_MIN(i, n - 1);
+
+				if ((error = json_v_delete(J, stack[n - (i + 1)])))
+					errx(1, "remove: %d: %s", i, json_strerror(error));
+			}
+		} else {
 			errx(1, "%s: invalid command", cmd);
+		}
 
 		if (argc) {
 			cmd = *argv;
