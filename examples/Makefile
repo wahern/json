@@ -7,3 +7,4 @@ libjson.a: ../src/json.c
 	$(CC) $(CFLAGS) -c -o $@ $< $(CPPFLAGS)
 
 splice: splice.c libjson.a
+
