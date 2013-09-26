@@ -1753,7 +1753,7 @@ static int parse(struct parser *P, const void *src, size_t len) {
 		return error;
 
 	RESUME();
-start:
+
 	POPTOKEN();
 
 	switch (T->type) {
