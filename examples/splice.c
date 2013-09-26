@@ -10,6 +10,13 @@
 #include "json.h"
 
 
+#ifdef __SUNPRO_CC
+extern "C" {
+extern int _setjmp(jmp_buf);
+}
+#endif
+
+
 static struct json *loadpath(const char *path) {
 	struct json *J;
 	int error;
