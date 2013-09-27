@@ -50,8 +50,8 @@ endif
 
 all: json
 
-json: json.c
-	$(CC) $(CFLAGS) -o $@ $^ $(CPPFLAGS) $(LDFLAGS) $(LDLIBS)
+json: json.c json.h
+	$(CC) $(CFLAGS) -o $@ $< $(CPPFLAGS) $(LDFLAGS) $(LDLIBS)
 
 
 .PHONY: clean clean~
