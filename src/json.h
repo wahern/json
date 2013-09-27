@@ -57,7 +57,7 @@ extern "C" {
 #define JSON_VERSION JSON_V_REL
 #define JSON_VENDOR "william@25thandClement.com"
 
-#define JSON_V_REL 0x20130926
+#define JSON_V_REL 0x20130927
 #define JSON_V_ABI 0x20130925
 #define JSON_V_API 0x20130925
 

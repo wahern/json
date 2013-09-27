@@ -2487,11 +2487,20 @@ struct json_path {
 }; /* struct json_path */
 
 
-#define path_init(path, fmt) do { \
+#define path_start(path, fmt) do { \
 	(path)->fmt = (fmt); \
 	(path)->fp = (fmt); \
 	va_start((path)->ap, fmt); \
-} while(0)
+} while (0)
+
+#define path_end(path) \
+	va_end((path)->ap)
+
+#define path_load(error, path, J, fmt, mode) do { \
+	path_start((path), fmt); \
+	*error = path_exec((J), (path), (mode)); \
+	path_end((path)); \
+} while (0)
 
 
 static _Bool path_eof(struct json_path *path) {
@@ -2692,9 +2701,9 @@ JSON_PUBLIC int json_push(struct json *J, const char *fmt, ...) {
 	struct json_path path;
 	int error;
 
-	path_init(&path, fmt);
+	path_load(&error, &path, J, fmt, J->mode);
 
-	if ((error = path_exec(J, &path, J->mode)))
+	if (error)
 		return json_throw(J, error);
 
 	if (!path_exists(&path)) /* either JSON_F_NOAUTOVIV or JSON_F_NOCONVERT */
@@ -2736,11 +2745,11 @@ JSON_PUBLIC void json_delete(struct json *J, const char *fmt, ...) {
 	struct json_path path;
 	int error;
 
-	path_init(&path, fmt);
+	path_load(&error, &path, J, fmt, 0);
 
-	if ((error = path_exec(J, &path, 0)))
-		json_throw(J, error);
-	else if (path.value)
+	json_ifthrow(J, error);
+
+	if (path.value)
 		json_v_delete(J, path.value);
 } /* json_delete() */
 
@@ -2749,10 +2758,9 @@ JSON_PUBLIC enum json_type json_type(struct json *J, const char *fmt, ...) {
 	struct json_path path;
 	int error;
 
-	path_init(&path, fmt);
+	path_load(&error, &path, J, fmt, 0);
 
-	if ((error = path_exec(J, &path, 0)))
-		json_throw(J, error);
+	json_ifthrow(J, error);
 
 	return (path.value)? path.value->type : JSON_T_NULL;
 } /* json_type() */
@@ -2762,10 +2770,9 @@ JSON_PUBLIC _Bool json_exists(struct json *J, const char *fmt, ...) {
 	struct json_path path;
 	int error;
 
-	path_init(&path, fmt);
+	path_load(&error, &path, J, fmt, 0);
 
-	if ((error = path_exec(J, &path, 0)))
-		json_throw(J, error);
+	json_ifthrow(J, error);
 
 	return (path.value)? 1 : 0;
 } /* json_exists() */
@@ -2775,10 +2782,9 @@ JSON_PUBLIC double json_number(struct json *J, const char *fmt, ...) {
 	struct json_path path;
 	int error;
 
-	path_init(&path, fmt);
+	path_load(&error, &path, J, fmt, 0);
 
-	if ((error = path_exec(J, &path, 0)))
-		json_throw(J, error);
+	json_ifthrow(J, error);
 
 	return json_v_number(J, path.value);
 } /* json_number() */
@@ -2788,10 +2794,9 @@ JSON_PUBLIC const char *json_string(struct json *J, const char *fmt, ...) {
 	struct json_path path;
 	int error;
 
-	path_init(&path, fmt);
+	path_load(&error, &path, J, fmt, 0);
 
-	if ((error = path_exec(J, &path, 0)))
-		json_throw(J, error);
+	json_ifthrow(J, error);
 
 	return json_v_string(J, path.value);
 } /* json_string() */
@@ -2801,10 +2806,9 @@ JSON_PUBLIC size_t json_length(struct json *J, const char *fmt, ...) {
 	struct json_path path;
 	int error;
 
-	path_init(&path, fmt);
+	path_load(&error, &path, J, fmt, 0);
 
-	if ((error = path_exec(J, &path, 0)))
-		json_throw(J, error);
+	json_ifthrow(J, error);
 
 	return json_v_length(J, path.value);
 } /* json_length() */
@@ -2814,10 +2818,9 @@ JSON_PUBLIC size_t json_count(struct json *J, const char *fmt, ...) {
 	struct json_path path;
 	int error;
 
-	path_init(&path, fmt);
+	path_load(&error, &path, J, fmt, 0);
 
-	if ((error = path_exec(J, &path, 0)))
-		json_throw(J, error);
+	json_ifthrow(J, error);
 
 	return json_v_count(J, path.value);
 } /* json_count() */
@@ -2827,10 +2830,9 @@ JSON_PUBLIC _Bool json_boolean(struct json *J, const char *fmt, ...) {
 	struct json_path path;
 	int error;
 
-	path_init(&path, fmt);
+	path_load(&error, &path, J, fmt, 0);
 
-	if ((error = path_exec(J, &path, 0)))
-		json_throw(J, error);
+	json_ifthrow(J, error);
 
 	return json_v_boolean(J, path.value);
 } /* json_boolean() */
@@ -2840,9 +2842,9 @@ JSON_PUBLIC int json_setnumber(struct json *J, double number, const char *fmt, .
 	struct json_path path;
 	int error;
 
-	path_init(&path, fmt);
+	path_load(&error, &path, J, fmt, J->mode);
 
-	if ((error = path_exec(J, &path, J->mode)))
+	if (error)
 		return json_throw(J, error);
 
 	if (!path_exists(&path))
@@ -2856,9 +2858,9 @@ JSON_PUBLIC int json_setbuffer(struct json *J, const void *src, size_t len, cons
 	struct json_path path;
 	int error;
 
-	path_init(&path, fmt);
+	path_load(&error, &path, J, fmt, J->mode);
 
-	if ((error = path_exec(J, &path, J->mode)))
+	if (error)
 		return json_throw(J, error);
 
 	if (!path_exists(&path))
@@ -2872,9 +2874,9 @@ JSON_PUBLIC JSON_DEPRECATED int json_setlstring(struct json *J, const void *src,
 	struct json_path path;
 	int error;
 
-	path_init(&path, fmt);
+	path_load(&error, &path, J, fmt, J->mode);
 
-	if ((error = path_exec(J, &path, J->mode)))
+	if (error)
 		return json_throw(J, error);
 
 	if (!path_exists(&path))
@@ -2888,9 +2890,9 @@ JSON_PUBLIC int json_setstring(struct json *J, const void *src, const char *fmt,
 	struct json_path path;
 	int error;
 
-	path_init(&path, fmt);
+	path_load(&error, &path, J, fmt, J->mode);
 
-	if ((error = path_exec(J, &path, J->mode)))
+	if (error)
 		return json_throw(J, error);
 
 	if (!path_exists(&path))
@@ -2904,9 +2906,9 @@ JSON_PUBLIC int json_setboolean(struct json *J, _Bool boolean, const char *fmt, 
 	struct json_path path;
 	int error;
 
-	path_init(&path, fmt);
+	path_load(&error, &path, J, fmt, J->mode);
 
-	if ((error = path_exec(J, &path, J->mode)))
+	if (error)
 		return json_throw(J, error);
 
 	if (!path_exists(&path))
@@ -2920,9 +2922,9 @@ JSON_PUBLIC int json_setnull(struct json *J, const char *fmt, ...) {
 	struct json_path path;
 	int error;
 
-	path_init(&path, fmt);
+	path_load(&error, &path, J, fmt, J->mode);
 
-	if ((error = path_exec(J, &path, J->mode)))
+	if (error)
 		return json_throw(J, error);
 
 	if (!path_exists(&path))
@@ -2936,9 +2938,9 @@ JSON_PUBLIC int json_setarray(struct json *J, const char *fmt, ...) {
 	struct json_path path;
 	int error;
 
-	path_init(&path, fmt);
+	path_load(&error, &path, J, fmt, J->mode);
 
-	if ((error = path_exec(J, &path, J->mode)))
+	if (error)
 		return json_throw(J, error);
 
 	if (!path_exists(&path))
@@ -2952,9 +2954,9 @@ JSON_PUBLIC int json_setobject(struct json *J, const char *fmt, ...) {
 	struct json_path path;
 	int error;
 
-	path_init(&path, fmt);
+	path_load(&error, &path, J, fmt, J->mode);
 
-	if ((error = path_exec(J, &path, J->mode)))
+	if (error)
 		return json_throw(J, error);
 
 	if (!path_exists(&path))
@@ -3096,6 +3098,9 @@ static void call_exec(struct call *fun) {
 	"%s [-pPf:Vh] [CMD [ARG ...] ...]\n" \
 	"  -p       pretty print\n" \
 	"  -P       print partial subtree\n" \
+	"  -A       disable autovivification\n" \
+	"  -C       disable conversion\n" \
+	"  -s       enable strong typing\n" \
 	"  -f PATH  file to parse\n" \
 	"  -V       print version\n" \
 	"  -h       print usage\n" \
@@ -3168,8 +3173,9 @@ int main(int argc, char **argv) {
 	int flags = 0, opt, error;
 	const char *file = NULL, *cmd;
 	struct call fun;
+	struct jsonxs trap;
 
-	while (-1 != (opt = getopt(argc, argv, "pPf:Vh"))) {
+	while (-1 != (opt = getopt(argc, argv, "pPACsf:Vh"))) {
 		switch (opt) {
 		case 'p':
 			flags |= JSON_F_PRETTY;
@@ -3177,6 +3183,18 @@ int main(int argc, char **argv) {
 			break;
 		case 'P':
 			flags |= JSON_F_PARTIAL;
+
+			break;
+		case 'A':
+			flags |= JSON_F_NOAUTOVIV;
+
+			break;
+		case 'C':
+			flags |= JSON_F_NOCONVERT;
+
+			break;
+		case 's':
+			flags |= JSON_F_STRONG;
 
 			break;
 		case 'f':
@@ -3212,7 +3230,7 @@ int main(int argc, char **argv) {
 	if (!strcmp(cmd, "lex"))
 		return lex_main(file);
 
-	J = json_open(0, &error);
+	J = json_open(flags, &error);
 
 	if (file) {
 		if (!strcmp(file, "-"))
@@ -3223,6 +3241,9 @@ int main(int argc, char **argv) {
 		if (error)
 			errx(1, "%s: %s", file, json_strerror(error));
 	}
+
+	if ((error = json_enter(J, &trap)))
+		errx(1, "%s: %s", file, json_strerror(error));
 
 	do {
 		if (!strcmp(cmd, "print")) {
