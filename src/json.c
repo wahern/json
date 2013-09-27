@@ -3133,7 +3133,7 @@ static void call_exec(struct call *fun) {
 	"  in square brackets. The # format specifier takes a numeric argument, while\n" \
 	"  the $ format specifier takes a string as a replacement value. Example:\n" \
 	"\n" \
-	"  	foo[#].b$ 2 ar\n" \
+	"  	foo[#].b$ 0 ar\n" \
 	"\n" \
 	"  This path first indexes the root node as an object with a key of \"foo\".\n" \
 	"  \"foo\" is then indexed as an array with a value at position 0. The 0 node is\n" \
