@@ -3170,8 +3170,9 @@ int main(int argc, char **argv) {
 	extern int optind;
 	char *arg0 = (argc)? argv[0] : "json";
 	struct json *J;
-	int flags = 0, opt, error;
-	const char *file = NULL, *cmd;
+	int opt, error;
+	int volatile flags = 0;
+	const char *volatile file = NULL, *volatile cmd;
 	struct call fun;
 	struct jsonxs trap;
 
