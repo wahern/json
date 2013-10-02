@@ -51,8 +51,11 @@ int main(void) {
 	 */
 
 	json_setnumber(J, 943, ".IDs[#]", json_count(J, ".IDs"));
-	/* # interpolates integers into the path expression. json_count
-	 * returns the array size of .IDs as an int, which should be 1
+	/* As an array index, # is taken as the index value. json_count
+	 * returns the array size of .IDs as an int, which should be 1.     
+	 *
+	 * (In an object key identifier, # interpolates an integer into the
+	 * string key.)
 	 */
 
 	json_push(J, ".IDs[#]", json_count(J, ".IDs"));

@@ -2593,7 +2593,8 @@ static _Bool path_next(struct json_path *path, int *error) {
 			len = snprintf(path->kp, json_endof(path->key) - path->kp, "%d", index);
 
 			if (len >= json_endof(path->key) - path->kp) {
-				goto syntx;
+				*error = JSON_EBIGPATH;
+				goto error;
 			} else if (len < 0)
 				goto syerr;
 
