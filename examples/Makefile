@@ -1,4 +1,4 @@
-all: splice
+all: splice example1
 
 CFLAGS = -Wall -Wextra -O2 -g
 CXXFLAGS = $(CFLAGS)
@@ -22,7 +22,7 @@ example1: example1.c libjson.a
 .PHONY: clean clean~
 
 clean:
-	rm -rf splice splice++ splice.cc libjson.a *.dSYM
+	rm -rf example1 splice splice++ splice.cc libjson.a *.dSYM
 
 clean~: clean
 	rm -f *~
