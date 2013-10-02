@@ -16,6 +16,9 @@ splice.cc: splice.c
 splice++: splice.cc libjson.a
 	$(CXX) $(CXXFLAGS) -o $@ splice.cc libjson.a $(CPPFLAGS) -I../src -lm
 
+example1: example1.c libjson.a
+	$(CC) $(CFLAGS) -o $@ example1.c libjson.a $(CPPFLAGS) -I../src -lm
+
 .PHONY: clean clean~
 
 clean:
