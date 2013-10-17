@@ -26,6 +26,7 @@
 #include <limits.h>	/* INT_MAX */
 #include <stddef.h>	/* size_t offsetof */
 #include <stdarg.h>	/* va_list va_start va_end va_arg */
+#include <stdint.h>     /* SIZE_MAX */
 #include <stdlib.h>	/* malloc(3) realloc(3) free(3) strtod(3) */
 #include <stdio.h>	/* EOF snprintf(3) fopen(3) fclose(3) ferror(3) clearerr(3) */
 
@@ -54,6 +55,10 @@
 
 #define json_countof(a) (sizeof (a) / sizeof *(a))
 #define json_endof(a) (&(a)[json_countof(a)])
+
+#if !__alignas_is_defined
+#define _Alignas(n) __attribute__((aligned(n)))
+#endif
 
 #undef SAY_
 #define SAY_(file, func, line, fmt, ...) \
@@ -228,6 +233,89 @@ JSON_PUBLIC int json_v_abi(void) {
 JSON_PUBLIC int json_v_api(void) {
 	return JSON_V_API;
 } /* json_v_api() */
+
+
+/*
+ * O B S T A C K  R O U T I N E S
+ *
+ * Like the GNU thing, but simpler and easier. The principle purpose of
+ * using a special-purpose allocator is JSON document deallocation
+ * efficiency, not because I want to outdo the system allocator.
+ *
+ * NOTES:
+ *
+ * 	o `Block' refers to the memory region allocated by the system.
+ *
+ * 	o `Page' refers to the data structure and associated memory region
+ * 	  used for chunking allocation requests.
+ *
+ * 	o `Page size' refers to the size of alloctable region of the Page
+ * 	  used to satisfy allocation requests.
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+#define JSON_MINALIGN (offsetof(struct { char x; union { void *p, double f; size_t z; } y; }, y))
+#define JSON_MINFUDGE (offsetof(struct json_obspage, data) + 16UL) /* our + system allocator overhead */
+#define JSON_MINBLOCK (4096UL - JSON_MINFUDGE)
+#define JSON_MAXBLOCK (SIZE_MAX >> 1UL)
+
+
+struct json_obspage {
+	struct json_obspage *next;
+	size_t size;
+	unsigned char _Alignas(JSON_MINALIGN) data[1];
+}; /* struct json_obspage */
+
+
+struct json_obstack {
+	struct json_obspage *page;
+	unsigned char *tp, *p, *pe;
+	size_t size;
+}; /* struct json_obstack */
+
+
+static inline size_t json_power2(size_t n) {
+#if defined SIZE_MAX
+	--n;
+
+	n |= n >> 1;
+	n |= n >> 2;
+	n |= n >> 4;
+	n |= n >> 8;
+#if SIZE_MAX > 0xffffULL
+	n |= n >> 16;
+#if SIZE_MAX > 0xffffffffULL
+	n |= n >> 32;
+#if SIZE_MAX > 0xffffffffffffffffULL
+#error SIZE_MAX too big
+#endif
+#endif
+#endif
+	return ++n;
+#else
+#error SIZE_MAX not defined
+#endif
+} /* json_power2() */
+
+
+static inline size_t json_roundup(size_t n) {
+	return (n > (SIZE_MAX >> 1U))? SIZE_MAX : json_power2(n);
+} /* json_roundup() */
+
+
+static inline size_t json_minblock(size_t n) {
+	if (n <= JSON_MINBLOCK)
+		return n;
+	else if (~JSON_MINFUDGE < n)
+		return json_roundup(n);
+	else
+		return json_roundup(n + JSON_MINFUDGE) - JSON_MINFUDGE;
+} /* json_minblock() */
+
+
+static inline size_t json_minpage(size_t n) {
+	return json_minblock()
+} /* json_minpage() */
 
 
 /*
