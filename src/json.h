@@ -123,6 +123,7 @@ enum json_errors {
 	JSON_ETYPING,
 	JSON_EBADPATH,
 	JSON_EBIGPATH,
+	JSON_ETOODEEP,
 	JSON_ELAST
 }; /* enum json_errors */
 
@@ -176,22 +177,34 @@ JSON_PUBLIC const char *json_strerror(json_error_t error);
  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-#define JSON_F_NONE      0x00 /* equals autovivification, inner-node conversions, compact printing */
-#define JSON_F_PRETTY    0x01 /* indent documents when composing */
-#define JSON_F_TRACE     0x02 /* XXX: long forgotten purpose */
-#define JSON_F_STRONG    0x04 /* strong typing of leaf nodes during reads */
-#define JSON_F_AUTOVIV   0x08 /* XXX: unused/deprecated/big mistake */
-#define JSON_F_NOAUTOVIV 0x10 /* disable autovivification */
-#define JSON_F_NOCONVERT 0x20 /* disable conversion of incompatible inner nodes during autovivification */
-#define JSON_F_PARTIAL   0x40 /* print subtree at current root, not whole document */
+#define JSON_F_NONE      0x000 /* equals autovivification, inner-node conversions, compact printing */
+#define JSON_F_PRETTY    0x001 /* indent documents when composing */
+#define JSON_F_TRACE     0x002 /* XXX: long forgotten purpose */
+#define JSON_F_STRONG    0x004 /* strong typing of leaf nodes during reads */
+#define JSON_F_AUTOVIV   0x008 /* XXX: unused/deprecated/big mistake */
+#define JSON_F_NOAUTOVIV 0x010 /* disable autovivification */
+#define JSON_F_NOCONVERT 0x020 /* disable conversion of incompatible inner nodes during autovivification */
+#define JSON_F_PARTIAL   0x040 /* print subtree at current root, not whole document */
+#define JSON_F_EPHEMERAL 0x080 /* enable fast memory allocation for short-lived documents */
+#define JSON_F_DEBUG     0x100 /* enable debugging parameters */
 
 #define json_flags_t int /* for documentation purposes only */
 
-struct json;
+struct json_options {
+	json_flags_t flags;
+	struct json_strings *keys;
+	struct json_strings *values;
+	size_t blksize;
+}; /* struct json_options */
 
 JSON_PUBLIC struct json *json_open(json_flags_t flags, json_error_t *error);
 /* Returns a new JSON object on success, with default parameters initialized
  * to `flags'. On failure returns NULL, with the error code in `error'.
+ */
+
+JSON_PUBLIC struct json *json_xopen(const struct json_options *opts, json_error_t *error);
+/* Returns a new JSON object on success, with default parameters initialized
+ * by `opts'. On failure returns NULL, with the error code in `error'.
  */
 
 JSON_PUBLIC void json_close(struct json *J);

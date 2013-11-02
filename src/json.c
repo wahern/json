@@ -146,14 +146,38 @@ static inline _Bool json_isnumber(unsigned char ch) {
 } /* json_isnumber() */
 
 
-static inline int json_safeadd(size_t *r, size_t a, size_t b) {
+static inline size_t json_power2(size_t n) {
+#if defined SIZE_MAX
+	--n;
+
+	n |= n >> 1;
+	n |= n >> 2;
+	n |= n >> 4;
+	n |= n >> 8;
+#if SIZE_MAX > 0xffffULL
+	n |= n >> 16;
+#if SIZE_MAX > 0xffffffffULL
+	n |= n >> 32;
+#if SIZE_MAX > 0xffffffffffffffffULL
+#error SIZE_MAX too big
+#endif
+#endif
+#endif
+	return ++n;
+#else
+#error SIZE_MAX not defined
+#endif
+} /* json_power2() */
+
+
+static inline int json_add(size_t *r, size_t a, size_t b) {
 	if (~a < b)
 		return ENOMEM;
 
 	*r = a + b;
 
 	return 0;
-} /* json_safeadd() */
+} /* json_add() */
 
 
 JSON_PUBLIC const char *json_strtype(enum json_type type) {
@@ -208,6 +232,7 @@ JSON_PUBLIC const char *json_strerror(int error) {
 		[JSON_ETYPING-JSON_EBASE]    = "JSON illegal operation on type",
 		[JSON_EBADPATH-JSON_EBASE]   = "JSON malformed path",
 		[JSON_EBIGPATH-JSON_EBASE]   = "JSON path too long",
+		[JSON_ETOODEEP-JSON_EBASE]   = "JSON tree too deep",
 	};
 
 	if (error >= JSON_EBASE && error < JSON_ELAST)
@@ -261,76 +286,78 @@ JSON_PUBLIC int json_v_api(void) {
  * 	o `Page' refers to the data structure and associated memory region
  * 	  used for chunking allocation requests.
  *
- * 	o `Page size' refers to the size of alloctable region of the Page
+ * 	o `Page size' refers to the size of allocatable region of the Page
  * 	  used to satisfy allocation requests.
  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-#define JSON_MINALIGN 16
-#define JSON_MINFUDGE (16UL) /* system allocator overhead */
-#define JSON_MINBLOCK (4096UL - JSON_MINFUDGE)
-#define JSON_MAXBLOCK (SIZE_MAX >> 2UL) /* to simplify overflow detection */
+#define JSON_O_ALIGN 16
+#define JSON_O_SYSFUDGE 32UL /* system allocator overhead */
+#define JSON_O_MINBLOCK 4096UL
+#define JSON_O_MAXBLOCK (SIZE_MAX >> 2UL) /* to simplify overflow detection */
 
 
 struct json_obspage {
-	struct json_obspage *next;
+	LIST_ENTRY(json_obspage) le;
 	size_t size;
-	unsigned char JSON_ALIGNAS(JSON_MINALIGN) data[1];
+	unsigned char JSON_ALIGNAS(JSON_O_ALIGN) data[1];
 }; /* struct json_obspage */
 
 
 struct json_obstack {
 	int refs;
-	struct json_obspage *page;
+	int flags;
+	size_t blksize;
+	LIST_HEAD(, json_obspage) pages;
 	unsigned char *tp, *p, *pe;
 }; /* struct json_obstack */
 
 
-static inline size_t json_power2(size_t n) {
-#if defined SIZE_MAX
-	--n;
-
-	n |= n >> 1;
-	n |= n >> 2;
-	n |= n >> 4;
-	n |= n >> 8;
-#if SIZE_MAX > 0xffffULL
-	n |= n >> 16;
-#if SIZE_MAX > 0xffffffffULL
-	n |= n >> 32;
-#if SIZE_MAX > 0xffffffffffffffffULL
-#error SIZE_MAX too big
-#endif
-#endif
-#endif
-	return ++n;
-#else
-#error SIZE_MAX not defined
-#endif
-} /* json_power2() */
-
-
-static inline int json_minblock(size_t *size, size_t n) {
-	if (n > JSON_MAXBLOCK)
+static inline int json_o_blksize(size_t *size, size_t n, int flags, size_t blksize) {
+	if (n > JSON_O_MAXBLOCK)
 		return ENOMEM;
-	else if (n <= JSON_MINBLOCK)
-		return *size = JSON_MINBLOCK;
-	else
-		*size = json_power2(n + JSON_MINFUDGE) - JSON_MINFUDGE;
+
+	if (n <= blksize) {
+		*size = blksize;
+	} else if (flags & JSON_F_EPHEMERAL) {
+		*size = json_power2(n + JSON_O_SYSFUDGE) - JSON_O_SYSFUDGE;
+	} else {
+		*size = n;
+	}
 
 	return 0;
-} /* json_minblock() */
+} /* json_o_blksize() */
 
 
-static struct json_obstack *json_obsopen(int *error) {
+static struct json_obstack *json_o_open(int flags, size_t blksize, int *error) {
 	struct json_obspage *page;
 	struct json_obstack *obs;
 	size_t size;
 
-	if ((*error = json_safeadd(&size, offsetof(struct json_obspage, data), sizeof *obs)))
+	if (flags & JSON_F_DEBUG) {
+		/*
+		 * set to 0 here so json_o_blksize doesn't need to check for
+		 * JSON_F_DEBUG every invocation
+		 */
+		blksize = 0;
+
+		flags &= ~JSON_F_EPHEMERAL;
+	} else if (!blksize && (flags & JSON_F_EPHEMERAL)) {
+		/* use our default block size if non-specified */
+		blksize = JSON_O_MINBLOCK;
+	}
+
+	/*
+	 * calculate the penalty once so json_o_blksize doesn't need to on
+	 * every invocation
+	 */
+	if (blksize > JSON_O_SYSFUDGE)
+		blksize -= JSON_O_SYSFUDGE;
+
+	if ((*error = json_add(&size, offsetof(struct json_obspage, data), sizeof *obs)))
 		return NULL;
 
-	if ((*error = json_minblock(&size, size)))
+	if ((*error = json_o_blksize(&size, size, flags, blksize)))
 		return NULL;
 
 	if (!(page = malloc(size))) {
@@ -338,69 +365,84 @@ static struct json_obstack *json_obsopen(int *error) {
 		return NULL;
 	}
 
-	page->next = NULL;
 	page->size = size - offsetof(struct json_obspage, data);
 
 	obs = (struct json_obstack *)page->data;
 	obs->refs = 1;
-	obs->page = page;
+	obs->flags = flags;
 	obs->tp = &page->data[sizeof *obs];
 	obs->p = obs->tp;
 	obs->pe = &page->data[page->size];
 
+	LIST_INIT(&obs->pages);
+	LIST_INSERT_HEAD(&obs->pages, page, le);
+
 	return obs;
-} /* json_obsopen() */
+} /* json_o_open() */
 
 
-static void json_obsclose(struct json_obstack *obs) {
+static int json_o_check(struct json_obstack **obs, int flags, size_t blksize) {
+	int error;
+
+	if (!*obs && !(*obs = json_o_open(flags, blksize, &error)))
+		return error;
+
+	return 0;
+} /* json_o_check() */
+
+
+static void json_o_close(struct json_obstack *obs) {
 	struct json_obspage *page, *next;
 
 	if (!obs || --obs->refs > 0)
 		return;
 
-	for (page = obs->page; page; page = next) {
-		next = page->next;
+	for (page = LIST_FIRST(&obs->pages); page; page = next) {
+		next = LIST_NEXT(page, le);
+		LIST_REMOVE(page, le);
 		free(page);
 	}
-} /* json_obsclose() */
+} /* json_o_close() */
 
 
-static void json_obsacquire(struct json_obstack *obs) {
+static void json_o_acquire(struct json_obstack *obs) {
 	++obs->refs;
-} /* json_obsacquire() */
+} /* json_o_acquire() */
 
 
-static void json_obsalign(struct json_obstack *obs) {
+static void json_o_align(struct json_obstack *obs) {
 	uintptr_t off, diff;
 
-	if ((off = (uintptr_t)obs->p & JSON_MINALIGN)) {
-		diff = JSON_MINALIGN - off;
+	if (obs->p != LIST_FIRST(&obs->pages)->data) {
+		if ((off = (uintptr_t)obs->p & JSON_O_ALIGN)) {
+			diff = JSON_O_ALIGN - off;
 
-		if (diff < (uintptr_t)(obs->pe - obs->p))
-			obs->p += diff;
-		else
-			obs->p = obs->pe;
+			if (diff < (uintptr_t)(obs->pe - obs->p))
+				obs->p += diff;
+			else
+				obs->p = obs->pe;
+		}
 	}
 
 	obs->tp = obs->p;
-} /* json_obsalign() */
+} /* json_o_align() */
 
 
-static int json_obsgrow(struct json_obstack *obs, size_t n) {
-	struct json_obspage *page;
+static int json_o_grow(struct json_obstack *obs, size_t n) {
+	struct json_obspage *page, *tmp;
 	size_t size, p;
 	int error;
 
 	if ((size_t)(obs->pe - obs->p) >= n)
 		return 0;
 
-	if ((error = json_safeadd(&size, offsetof(struct json_obspage, data), obs->p - obs->page->data)))
+	if ((error = json_add(&size, offsetof(struct json_obspage, data), obs->p - obs->tp)))
 		return error;
 
-	if ((error = json_safeadd(&size, size, n)))
+	if ((error = json_add(&size, size, n)))
 		return error;
 
-	if ((error = json_minblock(&size, size)))
+	if ((error = json_o_blksize(&size, size, obs->flags, obs->blksize)))
 		return error;
 
 	p = (size_t)(obs->p - obs->tp);
@@ -408,94 +450,156 @@ static int json_obsgrow(struct json_obstack *obs, size_t n) {
 	/*
 	 * resize the page if no other objects were allocated
 	 */
-	if (obs->tp == obs->page->data) {
-		if (!(page = realloc(obs->page, size)))
-			return errno;
+	if (obs->tp == LIST_FIRST(&obs->pages)->data) {
+		page = LIST_FIRST(&obs->pages);
+		LIST_REMOVE(page, le);
 
+		if (!(tmp = realloc(page, size))) {
+			LIST_INSERT_HEAD(&obs->pages, page, le);
+			return errno;
+		}
+
+		page = tmp;
 		page->size = size - offsetof(struct json_obspage, data);
 	} else {
 		if (!(page = malloc(size)))
 			return errno;
 
-		page->next = obs->page;
 		page->size = size - offsetof(struct json_obspage, data);
 		memcpy(page->data, obs->tp, obs->p - obs->tp);
 	}
 
-	obs->page = page;
 	obs->tp = page->data;
 	obs->p = obs->tp + p;
 	obs->pe = &page->data[page->size];
 
+	LIST_INSERT_HEAD(&obs->pages, page, le);
+
 	return 0;
-} /* json_obsgrow() */
+} /* json_o_grow() */
 
 
-static int json_obsnew(struct json_obstack *obs, size_t n) {
-	json_obsalign(obs);
+static void json_o_freepage(struct json_obstack *obs, struct json_page *page) {
+	struct json_page *next;
 
-	return json_obsgrow(obs, n);
-} /* json_obsnew() */
+	if (page == LIST_FIRST(&obs->pages)) {
+		next = LIST_NEXT(page, le);
 
-
-static void json_obsundo(struct json_obstack *obs) {
-	obs->p = obs->tp;
-} /* json_obsundo() */
-
-
-static void *json_obstop(struct json_obstack *obs) {
-	return obs->tp;
-} /* json_obstop() */
-
-
-static size_t json_obslen(struct json_obstack *obs) {
-	return obs->p - obs->tp;
-} /* json_obslen() */
+		obs->tp = next->data[next->size];
+		obs->p = obs->tp;
+		obs->pe = obs->tp;
+	}
+		
+	LIST_REMOVE(page, le);
+	free(page);
+} /* json_o_freepage() */
 
 
-static int json_obsputc(struct json_obstack *obs, int ch) {
+static void json_o_free(struct json_obstack *obs, void *p) {
+	struct json_page *page;
+
+	if (p && !(obs->flags & JSON_F_EPHEMERAL)) {
+		page = (struct json_page *)((char *)p - offsetof(struct json_page, data));
+
+		json_o_freepage(obs, page);
+	}
+} /* json_o_free() */
+
+
+static int json_o_new(struct json_obstack *obs, size_t n) {
+	if (obs->flags & JSON_F_EPHEMERAL) {
+		json_o_align(obs);
+	} else {
+		/*
+		 * make sure tp will be at the top of the page so it can be
+		 * deallocated
+		 */
+		if (obs->p != LIST_FIRST(&obs->pages)->data)
+			obs->tp = obs->p = obs->pe;
+	}
+
+	return json_o_grow(obs, n);
+} /* json_o_new() */
+
+
+static int json_o_set(struct json_obstack *obs, size_t n) {
 	int error;
 
-	if (!(obs->p < obs->pe) && (error = json_obsgrow(obs, 1)))
+	if (obs->p - obs->tp < n) {
+		if ((error = json_o_grow(obs, n - (obs->p - obs->tp))))
+			return error;
+	}
+
+	obs->p = obs->tp + n;
+
+	return 0;
+} /* json_o_set() */
+
+
+static void json_o_undo(struct json_obstack *obs) {
+	struct json_page *page;
+
+	if (obs->flags & JSON_F_EPHEMERAL) {
+		obs->p = obs->tp;
+	} else {
+		json_o_freepage(obs, LIST_FIRST(&obs->pages));
+	}
+} /* json_o_undo() */
+
+
+static void *json_o_top(struct json_obstack *obs) {
+	return obs->tp;
+} /* json_o_top() */
+
+
+static size_t json_o_len(struct json_obstack *obs) {
+	return obs->p - obs->tp;
+} /* json_o_len() */
+
+
+static int json_o_putc(struct json_obstack *obs, int ch) {
+	int error;
+
+	if (!(obs->p < obs->pe) && (error = json_o_grow(obs, 1)))
 		return error;
 
 	*obs->p++ = ch;
 
 	return 0;
-} /* json_obsputc() */
+} /* json_o_putc() */
 
 
-static int json_obscat(struct json_obstack *obs, const void *src, size_t len) {
+static int json_o_cat(struct json_obstack *obs, const void *src, size_t len) {
 	int error;
 
-	if ((error = json_obsgrow(obs, len)))
+	if ((error = json_o_grow(obs, len)))
 		return error;
 
 	memcpy(obs->p, src, len);
 	obs->p += len;
 
 	return 0;
-} /* json_obscat() */
+} /* json_o_cat() */
 
 
-static void *json_obsget(struct json_obstack *obs, size_t n, int *error) {
-	if ((*error = json_obsnew(obs, n)))
+static void *json_o_get(struct json_obstack *obs, size_t n, int *error) {
+	if ((*error = json_o_new(obs, n)))
 		return NULL;
 
 	obs->p += n;
 
 	return obs->tp;
-} /* json_obsget() */
+} /* json_o_get() */
 
 
-static void *json_obsdup(struct json_obstack *obs, const void *src, size_t len, int *error) {
+static void *json_o_dup(struct json_obstack *obs, const void *src, size_t len, int *error) {
 	void *dst;
 
-	if ((dst = json_obsget(obs, len, error)))
+	if ((dst = json_o_get(obs, len, error)))
 		memcpy(dst, src, len);
 
 	return dst;
-} /* json_obsdup() */
+} /* json_o_dup() */
 
 
 /*
@@ -503,16 +607,21 @@ static void *json_obsdup(struct json_obstack *obs, const void *src, size_t len, 
  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
+#define JSON_S_MINLENGTH 32
+
 struct json_string {
 	LLRB_ENTRY(json_string) rbe;
+	size_t refs;
 	size_t size;
 	char *text;
 }; /* struct json_string */
 
 
 struct json_strings {
+	int refs;
+	int flags;
 	struct json_obstack *obstack;
-	LLRB_HEAD(json_cache, json_string) tree;
+	LLRB_HEAD(json_cache, json_string) cache;
 }; /* struct json_strings */
 
 
@@ -528,79 +637,199 @@ static inline int json_strcmp(struct json_string *a, struct json_string *b) {
 LLRB_GENERATE_STATIC(json_cache, json_string, rbe, json_strcmp)
 
 
-static struct json_strings *json_strsopen(struct json_obstack *obs, int *error) {
-	struct json_strings *strs;
+static struct json_strings *json_s_open4(struct json_strings *reuse, int flags, struct json_obstack *obstack, int *error) {
+	struct json_strings *S;
 
-	if (obs) {
-		json_obsacquire(obs);
-	} else if (!(obs = json_obsopen(error))) {
+	if (reuse) {
+		++reuse->refs;
+
+		return reuse;
+	} else if (obstack) {
+		json_o_acquire(obstack);
+	} else if (!(obstack = json_o_open(flags, 0, error))) {
 		goto error;
 	}
 
-	if (!(strs = json_obsget(obs, sizeof *strs, error)))
+	if (!(S = json_o_get(obstack, sizeof *S, error)))
 		goto error;
 
-	strs->obstack = obs;
+	S->refs = 1;
+	S->flags = flags;
+	S->obstack = obstack;
 
-	LLRB_INIT(&strs->tree);
+	LLRB_INIT(&S->cache);
 
-	return strs;
+	return S;
 error:
-	json_obsclose(obs);
+	json_o_close(obstack);
 
 	return NULL;
-} /* json_strsopen() */
+} /* json_s_open4() */
 
 
-static void json_strsclose(struct json_strings *strs) {
-	json_obsclose(strs->obstack);
-} /* json_strsclose() */
+static void json_s_close(struct json_strings *S) {
+	if (!S || --S->refs > 0)
+		return;
+
+	json_o_close(S->obstack);
+} /* json_s_close() */
 
 
-static int json_strnew(struct json_strings *strs) {
+static int json_s_new(struct json_strings *S) {
 	int error;
 
-	if (!json_obsget(strs->obstack, sizeof (struct json_string), &error))
+	if (S->)
+
+	if ((error = json_o_new(S->obstack, sizeof (struct json_string) + JSON_S_MINLENGTH, &error)))
 		return error;
 
-	return 0;
-} /* json_strnew() */
+	return json_o_set(S->obstack, sizeof (struct json_string));
+} /* json_s_new() */
 
 
-static int json_strcat(struct json_strings *strs, const void *src, size_t len) {
-	return json_obscat(strs->obstack, src, len);
-} /* json_strcat() */
+static int json_s_cat(struct json_strings *S, const void *src, size_t len) {
+	return json_o_cat(S->obstack, src, len);
+} /* json_s_cat() */
 
 
-static int json_strputc(struct json_strings *strs, int ch) {
-	return json_obsputc(strs->obstack, ch);
-} /* json_strputc() */
+static int json_s_putc(struct json_strings *S, int ch) {
+	return json_o_putc(S->obstack, ch);
+} /* json_s_putc() */
 
 
-static struct json_string *json_strend(struct json_strings *strs, int *error) {
+static int json_s_putw(struct json_strings *S, int ch) {
+	char seq[4];
+	int len;
+
+	if (ch < 0x80)
+		return json_s_putc(S, ch);
+
+	if (ch < 0x800) {
+		seq[0] = 0xc0 | (0x1f & (ch >> 6));
+		seq[1] = 0x80 | (0x3f & ch);
+		len = 2;
+	} else if (ch < 0x10000) {
+		seq[0] = 0xe0 | (0x0f & (ch >> 12));
+		seq[1] = 0x80 | (0x3f & (ch >> 6));
+		seq[2] = 0x80 | (0x3f & ch);
+		len = 3;
+	} else {
+		seq[0] = 0xf0 | (0x07 & (ch >> 18));
+		seq[1] = 0x80 | (0x3f & (ch >> 12));
+		seq[2] = 0x80 | (0x3f & (ch >> 6));
+		seq[3] = 0x80 | (0x3f & ch);
+		len = 4;
+	}
+
+	return json_s_cat(S, seq, len);
+} /* json_s_putw() */
+
+
+static struct json_string *json_s_end(struct json_strings *S, int *error) {
 	struct json_string *str, *old;
 
-	if ((*error = json_strputc(strs, '\0')))
+	if ((*error = json_s_putc(S, '\0')))
 		return NULL;
 
-	str = (struct json_string *)json_obstop(strs->obstack);
-	str->size = json_obslen(strs->obstack) - sizeof *str - 1;
+	str = (struct json_string *)json_o_top(S->obstack);
+	str->size = json_o_len(S->obstack) - sizeof *str - 1;
 	str->text = (char *)str + sizeof *str;
 
-	if (!(old = LLRB_INSERT(json_cache, &strs->tree, str))) {
-		json_obsundo(strs->obstack);
+	if (!(old = LLRB_INSERT(json_cache, &S->cache, str))) {
+		json_o_undo(S->obstack);
 
 		return old;
 	} else {
 		return str;
 	}
-} /* json_strend() */
+} /* json_s_end() */
+
+
+static struct json_string *json_s_add(struct json_strings *S, void *src, size_t len, int *_error) {
+	int error;
+
+	
+} /* json_s_add() */
+
+
+/*
+ * M E M O R Y  P O O L  R O U T I N E S
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+struct json_memory {
+	int flags;
+
+	struct json_obstack *obstack; /* general purpose objects */
+	struct json_obstack *tokens;  /* parsing tokens only */
+	struct json_strings *keys;    /* object key name cache */
+	struct json_strings *values;  /* string value cache */
+}; /* struct json_memory */
+
+
+static void json_m_destroy(struct json_memory *M) {
+	struct json_obstack *obstack;
+
+	json_s_close(M->values);
+	M->values = NULL;
+
+	json_s_close(M->keys);
+	M->keys = NULL;
+
+	json_obsclose(M->tokens);
+	M->tokens = NULL;
+
+	obstack = M->obstack;
+	M->obstack = NULL;
+	json_obsclose(obstack);
+} /* json_m_destroy() */
+
+
+static int json_m_init(struct json_memory *M, const struct json_options *opts) {
+	int error = 0;
+
+	memset(M, 0, sizeof *M);
+
+	M->flags = opts->flags;
+
+	if (!(M->obstack = json_obsopen(opts->flags, &error)))
+		goto error;
+
+	if (!(M->keys = json_s_open4(opts->keys, opts->flags, obstack, &error)))
+		goto error;
+
+	if (!(M->values = json_s_open4(opts->values, opts->flags, obstack, &error)))
+		goto error;
+
+	return 0;
+error:
+	json_m_destroy(M);
+
+	return error;
+} /* json_m_init() */
+
+
+static void json_m_move(struct json_memory *dst, struct json_memory *src) {
+	dst->obstack = src->obstack;
+	src->obstack = NULL;
+
+	dst->tokens = src->tokens;
+	src->tokens = NULL;
+
+	dst->keys = src->keys;
+	src->keys = NULL;
+
+	dst->values = src->values;
+	src->values = NULL;
+} /* json_m_move() */
 
 
 /*
  * S T R I N G  R O U T I N E S
  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+#if 0
 
 struct string {
 	size_t limit;
@@ -731,7 +960,7 @@ static int string_putw(struct string **S, int ch) {
 
 	return string_cats(S, seq, len);
 } /* string_putw() */
-
+#endif
 
 /*
  * L E X E R  R O U T I N E S
@@ -795,6 +1024,12 @@ JSON_NOTUSED static const char *lex_strtype(enum tokens type) {
 
 
 struct lexer {
+	struct json_memory *memory;
+	struct json_strings *string;
+
+	unsigned char stack[128];
+	size_t depth;
+
 	void *state;
 
 	struct {
@@ -807,7 +1042,7 @@ struct lexer {
 
 	struct token *token;
 
-	struct string *string;
+//	struct string *string;
 	char *sp, *pe;
 
 	int i, code, high;
@@ -818,8 +1053,10 @@ struct lexer {
 }; /* struct lexer */
 
 
-static void lex_init(struct lexer *L) {
+static void lex_init(struct lexer *L, struct json_memory *memory) {
 	memset(L, 0, sizeof *L);
+
+	L->memory = memory;
 
 	L->cursor.row = 1;
 
@@ -851,6 +1088,33 @@ static void lex_destroy(struct lexer *L) {
 } /* lex_destroy() */
 
 
+/*
+ * Helper routines for switching between key and value string collections.
+ */
+static int lex_up(struct lexer *L, enum tokens begin) {
+	if (L->depth >= json_countof(L->stack) - 1)
+		return JSON_ETOODEEP;
+
+	L->stack[++L->depth] = begin;
+
+	return 0;
+} /* lex_up() */
+
+static int lex_down(struct lexer *L, enum tokens expect) {
+	if (L->depth == 0)
+		return JSON_ESYNTAX;
+
+	if (L->stack[L->depth--] != expect)
+		return JSON_ESYNTAX;
+
+	if (L->stack[L->depth] == T_BEGIN_OBJECT)
+		L->strings = L->memory->keys;
+	else
+		L->strings = L->memory->values;
+
+	return 0;
+} /* lex_down() */
+
 static int lex_push(struct lexer *L, enum tokens type, ...) {
 	struct token *T;
 	va_list ap;
@@ -862,6 +1126,33 @@ static int lex_push(struct lexer *L, enum tokens type, ...) {
 	T->type = type;
 
 	switch (type) {
+	case T_BEGIN_ARRAY:
+		L->strings = L->memory->values;
+		if ((error = lex_up(L, T_BEGIN_ARRAY)))
+			return error;
+		break;
+	case T_END_ARRAY:
+		if ((error = lex_down(L, T_BEGIN_ARRAY)))
+			return error;
+		break;
+	case T_BEGIN_OBJECT:
+		L->strings = L->memory->keys;
+		if ((error = lex_up(L, T_BEGIN_OBJECT)))
+			return error;
+		break;
+	case T_END_OBJECT:
+		if ((error = lex_down(L, T_BEGIN_OBJECT)))
+			return error;
+		break;
+	case T_NAME_SEPERATOR:
+		L->strings = L->memory->values;
+		break;
+	case T_VALUE_SEPERATOR:
+		if (L->stack[L->depth] == T_BEGIN_OBJECT)
+			L->strings = L->memory->keys;
+		else
+			L->strings = L->memory->values;
+		break;
 	case T_STRING:
 		va_start(ap, type);
 		T->string = va_arg(ap, struct string *);
@@ -975,6 +1266,12 @@ static int lex_parse(struct lexer *L, const void *src, size_t len) {
 	int ch, error;
 
 	resume();
+
+	if ((error = json_obsprep(&L->memory->tokens, L->memory->flags))) 
+		return error;
+
+	L->strings = L->memory->values;
+
 start:
 	popchar();
 
@@ -1997,6 +2294,7 @@ static size_t print(struct printer *P, void *dst, size_t lim) {
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 struct parser {
+	struct json_memory *memory;
 	struct lexer lexer;
 	CIRCLEQ_HEAD(, token) tokens;
 	void *state;
@@ -2007,9 +2305,10 @@ struct parser {
 }; /* struct parser */
 
 
-static void parse_init(struct parser *P) {
+static void parse_init(struct parser *P, struct json_memory *memory) {
 	memset(P, 0, sizeof *P);
-	lex_init(&P->lexer);
+	P->memory = memory;
+	lex_init(&P->lexer, memory);
 	CIRCLEQ_INIT(&P->tokens);
 } /* parse_init() */
 
@@ -2257,6 +2556,8 @@ stop:
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 struct json {
+	int refs;
+	struct json_memory memory;
 	int flags, mode;
 	struct parser parser;
 	struct printer printer;
@@ -2265,22 +2566,46 @@ struct json {
 }; /* struct json */
 
 
-JSON_PUBLIC struct json *json_open(int flags, int *error) {
+JSON_PUBLIC struct json *json_xopen(const struct json_options *opts, int *_error) {
+	struct json_memory memory;
 	struct json *J;
+	int error;
 
-	if (!(J = json_make0(sizeof *J, error)))
-		return NULL;
+	if ((error = json_m_init(&memory, opts)))
+		goto error;
 
-	J->flags = flags;
-	J->mode = ~((flags & (JSON_F_NOAUTOVIV|JSON_F_NOCONVERT)) >> 4)
+	if (!(J = json_obsget(obstack, sizeof *J, &error)))
+		goto error;
+
+	memset(J, 0, sizeof *J);
+
+	J->refs = 1;
+
+	json_m_move(&J->memory, &memory);
+
+	J->flags = opts->flags;
+	J->mode = ~((opts->flags & (JSON_F_NOAUTOVIV|JSON_F_NOCONVERT)) >> 4)
 	        & (JSON_M_AUTOVIV|JSON_M_CONVERT);
 
-	parse_init(&J->parser);
+	parse_init(&J->parser, &J->memory);
 
 	J->trap = NULL;
 	J->root = NULL;
 
 	return J;
+error:
+	*_error = error;
+
+	json_m_destroy(&memory);
+
+	return NULL;
+} /* json_xopen() */
+
+
+JSON_PUBLIC struct json *json_open(int flags, int *error) {
+	struct json_options opts = { .flags = flags, NULL, NULL };
+
+	return json_xopen(&opts, error);
 } /* json_open() */
 
 
